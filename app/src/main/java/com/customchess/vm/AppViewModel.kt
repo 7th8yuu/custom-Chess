@@ -113,7 +113,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val u = GoogleAuth.signIn(activity, BuildConfig.GOOGLE_WEB_CLIENT_ID)
-                setUser(u)
+                applyUser(u)
             } catch (e: AuthException) {
                 if (!e.cancelled) authError = e.message
             } catch (e: Exception) {
@@ -124,9 +124,9 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun continueAsGuest() = setUser(User(UserKind.GUEST, "Khách"))
+    fun continueAsGuest() = applyUser(User(UserKind.GUEST, "Khách"))
 
-    private fun setUser(u: User) {
+    private fun applyUser(u: User) {
         store.saveUser(u)
         user = u
         if (screen == Screen.LOGIN) {
@@ -719,7 +719,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setLobbyError(msg: String?) {
+    fun showLobbyError(msg: String?) {
         lobbyError = msg
     }
 
