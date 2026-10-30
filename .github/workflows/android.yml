@@ -13,20 +13,49 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # Dùng Android SDK có sẵn trên máy chạy; nếu thiếu thì tự cài bằng cmdline-tools của Google.
+      - name: Chuẩn bị Android SDK
+        run: |
+          set +e
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          have_sdk() { [ -d "$1/platforms/android-35" ] && [ -n "$(ls "$1/build-tools" 2>/dev/null)" ]; }
+          if ! have_sdk "$SDK"; then
+            echo "SDK có sẵn thiếu platform 35 hoặc build-tools, cài thủ công vào HOME" > sdk-install.txt
+            SDK="$HOME/android-sdk"
+            mkdir -p "$SDK/cmdline-tools" /tmp/cmdtools
+            curl -fsSL -o /tmp/cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip >> sdk-install.txt 2>&1
+            unzip -q -o /tmp/cmdtools.zip -d /tmp/cmdtools >> sdk-install.txt 2>&1
+            mkdir -p "$SDK/cmdline-tools/latest"
+            cp -r /tmp/cmdtools/cmdline-tools/. "$SDK/cmdline-tools/latest/"
+            yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" --licenses > /dev/null 2>> sdk-install.txt
+            "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" "platforms;android-35" "build-tools;35.0.0" "platform-tools" >> sdk-install.txt 2>&1
+          fi
+          {
+            echo "runner: $(. /etc/os-release; echo "$PRETTY_NAME")"
+            echo "SDK: $SDK"
+            echo "platforms: $(ls "$SDK/platforms" 2>&1 | tr '\n' ' ')"
+            echo "build-tools: $(ls "$SDK/build-tools" 2>&1 | tr '\n' ' ')"
+            echo "licenses: $(ls "$SDK/licenses" 2>&1 | tr '\n' ' ')"
+            java -version 2>&1 | head -1
+          } > sdk-info.txt
+          [ -f sdk-install.txt ] && tail -25 sdk-install.txt >> sdk-info.txt
+          python3 .github/annotate.py notice "Android SDK" sdk-info.txt
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "sdk.dir=$SDK" > local.properties
+          have_sdk "$SDK"
 
       - name: Set up Gradle (cache)
         uses: gradle/actions/setup-gradle@v4
@@ -35,19 +64,30 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Unit tests (luật cờ, engine, giao thức)
-        run: ./gradlew testDebugUnitTest --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee test.log
 
       - name: Assemble debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log
         env:
           # Tùy chọn: tạo secret GOOGLE_WEB_CLIENT_ID trong Settings > Secrets and variables > Actions
           GOOGLE_WEB_CLIENT_ID: ${{ secrets.GOOGLE_WEB_CLIENT_ID }}
 
       - name: Assemble release APK
         if: startsWith(github.ref, 'refs/tags/v')
-        run: ./gradlew assembleRelease --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee release.log
         env:
           GOOGLE_WEB_CLIENT_ID: ${{ secrets.GOOGLE_WEB_CLIENT_ID }}
+
+      # Khi hỏng, ghi lỗi vào phần chú thích của lần chạy để đọc nhanh mà không phải tải log.
+      - name: Ghi lỗi vào chú thích
+        if: failure()
+        run: python3 .github/annotate.py error "Lỗi build" test.log build.log release.log
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
