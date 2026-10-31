@@ -104,6 +104,20 @@ jobs:
           path: app/build/reports/tests/
           if-no-files-found: ignore
 
+      # Mỗi lần đẩy lên main, cập nhật bản phát hành "latest" kèm APK để tải thẳng ở mục Releases (không cần đăng nhập GitHub
+      # để tải artifact). Dùng gh với GITHUB_TOKEN của workflow nên không cần quyền đẩy tag từ bên ngoài.
+      - name: Cập nhật bản phát hành "latest"
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true   # không để việc đăng bản phát hành làm đỏ cả lần build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk CustomChess-latest.apk
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest CustomChess-latest.apk --prerelease --target "$GITHUB_SHA" \
+            --title "Bản mới nhất (main)" \
+            --notes "APK debug dựng tự động từ commit ${GITHUB_SHA::7}. Ký bằng khóa cố định trong repo nên cài đè lên bản cũ được."
+
       - name: Đặt tên file APK phát hành
         if: startsWith(github.ref, 'refs/tags/v')
         run: cp app/build/outputs/apk/release/app-release.apk "CustomChess-${GITHUB_REF_NAME}.apk"
