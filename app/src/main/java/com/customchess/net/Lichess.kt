@@ -136,7 +136,9 @@ class LichessClient(private val token: String) {
     companion object {
         const val BASE = "https://lichess.org"
         const val CLIENT_ID = "customchess-android"
-        const val REDIRECT = "customchess://oauth"
+        /** Scheme dạng tên miền đảo ngược (như ứng dụng Lichess chính thức dùng) để Lichess chắc chắn chấp nhận. */
+        const val REDIRECT_SCHEME = "com.customchess.app"
+        const val REDIRECT = "$REDIRECT_SCHEME://oauth"
         const val SCOPE = "board:play"
 
         private fun b64url(bytes: ByteArray) =

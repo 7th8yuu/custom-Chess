@@ -30,9 +30,9 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
     }
 
-    /** Trình duyệt chuyển hướng về customchess://oauth sau khi người dùng cấp quyền Lichess. */
+    /** Trình duyệt chuyển hướng về com.customchess.app://oauth sau khi người dùng cấp quyền Lichess. */
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data ?: return
-        if (data.scheme == "customchess") vm.handleOAuthRedirect(data)
+        if (data.scheme == com.customchess.net.LichessClient.REDIRECT_SCHEME) vm.handleOAuthRedirect(data)
     }
 }

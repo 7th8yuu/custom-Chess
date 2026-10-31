@@ -893,7 +893,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /**
      * Đăng nhập Lichess bằng OAuth (PKCE): mở trang cấp quyền của Lichess trong tab trình duyệt ngay trong ứng dụng,
-     * xong Lichess chuyển hướng về customchess://oauth và [handleOAuthRedirect] nhận token. Dùng được cả để đăng nhập
+     * xong Lichess chuyển hướng về com.customchess.app://oauth và [handleOAuthRedirect] nhận token. Dùng được cả để đăng nhập
      * (màn hình đầu) lẫn để kết nối tài khoản Lichess cho người đang dùng Google.
      */
     fun startLichessLogin(activity: Activity?) {
@@ -911,9 +911,9 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Gọi từ MainActivity khi trình duyệt chuyển hướng về customchess://oauth?... */
+    /** Gọi từ MainActivity khi trình duyệt chuyển hướng về com.customchess.app://oauth?... */
     fun handleOAuthRedirect(uri: Uri) {
-        if (uri.scheme != "customchess") return
+        if (uri.scheme != LichessClient.REDIRECT_SCHEME) return
         val err = uri.getQueryParameter("error")
         if (err != null) {
             lichessUi = lichessUi.copy(busy = false, error = "Lichess từ chối: ${uri.getQueryParameter("error_description") ?: err}")
