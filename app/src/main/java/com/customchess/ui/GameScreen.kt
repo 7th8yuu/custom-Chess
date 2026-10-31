@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
@@ -121,7 +122,7 @@ private fun ClockChip(ms: () -> Long, active: Boolean) {
         Modifier.clip(RoundedCornerShape(10.dp)).background(bg).padding(horizontal = 12.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text2(formatClock(v), Type.Clock.copy(color = if (active) Pal.Ink else Pal.Egg))
+        Text2(formatClock(v), Type.Clock.copy(color = if (active) Pal.OnGold else Pal.Egg))
     }
 }
 
@@ -140,7 +141,7 @@ private fun PlayerBar(
     Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(12.dp).clip(CircleShape)
-                .background(if (whiteSide) Pal.Egg else Pal.Ink)
+                .background(if (whiteSide) Color(0xFFF2E8D2) else Color(0xFF14100E))
                 .border(BorderStroke(1.5.dp, if (active) Pal.Gold else Pal.EggDim), CircleShape),
         )
         Spacer(Modifier.width(10.dp))

@@ -52,7 +52,7 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, style = Type.Button.copy(color = Pal.Ink))
+        Text(text, style = Type.Button.copy(color = Pal.OnGold))
     }
 }
 
@@ -86,7 +86,7 @@ fun Pill(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifie
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, style = Type.Body.copy(color = if (selected) Pal.Ink else Pal.Egg, fontSize = 14.sp))
+        Text(text, style = Type.Body.copy(color = if (selected) Pal.OnGold else Pal.Egg, fontSize = 14.sp))
     }
 }
 
@@ -177,7 +177,7 @@ fun SettingSwitch(title: String, subtitle: String, checked: Boolean, onChange: (
         Switch(
             checked = checked, onCheckedChange = onChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Pal.Ink, checkedTrackColor = Pal.Gold,
+                checkedThumbColor = Pal.OnGold, checkedTrackColor = Pal.Gold,
                 uncheckedThumbColor = Pal.EggDim, uncheckedTrackColor = Pal.PanelHi, uncheckedBorderColor = Pal.Hair,
             ),
         )

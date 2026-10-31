@@ -4,10 +4,12 @@ import android.content.Context
 import com.customchess.ai.AiConfig
 import com.customchess.ai.Provider
 
-enum class UserKind { GOOGLE, GUEST }
+enum class UserKind { GOOGLE, LICHESS, GUEST }
 
 data class User(val kind: UserKind, val name: String, val email: String = "") {
     val isGuest: Boolean get() = kind == UserKind.GUEST
+    /** Tài khoản thật (Google hoặc Lichess), đủ điều kiện đấu online. */
+    val isMember: Boolean get() = kind != UserKind.GUEST
     val initial: String get() = name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
 }
 
@@ -19,6 +21,13 @@ data class Settings(
     val fallbackToEngine: Boolean = true,
     val engineLevel: Int = 3,
     val provider: Provider = Provider.GEMINI,
+    /** Chỉ số trong [com.customchess.ui.PIECE_STYLES]. */
+    val pieceSet: Int = 0,
+    /** 0 = tối, 1 = sáng, 2 = theo hệ thống. */
+    val themeMode: Int = 0,
+    /** Đổi màu cả ứng dụng theo màu chủ đạo của bàn cờ đang chọn. */
+    val adaptColors: Boolean = true,
+    val showCoords: Boolean = true,
 )
 
 data class ApiSlot(val key: String = "", val model: String = "", val baseUrl: String = "")
@@ -55,6 +64,10 @@ class Store(context: Context) {
         engineLevel = sp.getInt("s.level", 3).coerceIn(1, 5),
         provider = runCatching { Provider.valueOf(sp.getString("s.provider", Provider.GEMINI.name)!!) }
             .getOrDefault(Provider.GEMINI),
+        pieceSet = sp.getInt("s.pieces", 0),
+        themeMode = sp.getInt("s.mode", 0).coerceIn(0, 2),
+        adaptColors = sp.getBoolean("s.adapt", true),
+        showCoords = sp.getBoolean("s.coords", true),
     )
 
     fun saveSettings(s: Settings) {
@@ -66,6 +79,10 @@ class Store(context: Context) {
             .putBoolean("s.fallback", s.fallbackToEngine)
             .putInt("s.level", s.engineLevel)
             .putString("s.provider", s.provider.name)
+            .putInt("s.pieces", s.pieceSet)
+            .putInt("s.mode", s.themeMode)
+            .putBoolean("s.adapt", s.adaptColors)
+            .putBoolean("s.coords", s.showCoords)
             .apply()
     }
 
@@ -95,6 +112,12 @@ class Store(context: Context) {
     var lichessName: String
         get() = sp.getString("lichess.name", "").orEmpty()
         set(v) { sp.edit().putString("lichess.name", v).apply() }
+
+    /** Điểm xếp hạng Lichess lần cuối lấy được: blitz, rapid, classical (0 = chưa có). */
+    var lichessRatings: List<Int>
+        get() = (sp.getString("lichess.ratings", "") ?: "").split(',').map { it.toIntOrNull() ?: 0 }
+            .let { l -> List(3) { l.getOrElse(it) { 0 } } }
+        set(v) { sp.edit().putString("lichess.ratings", v.joinToString(",")).apply() }
 
     // PKCE đang chờ hoàn tất (đăng nhập Lichess bằng trình duyệt)
     var pkceVerifier: String

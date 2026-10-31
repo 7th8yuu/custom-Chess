@@ -20,6 +20,20 @@ fun interface Cancelable {
     fun cancel()
 }
 
+/** [ratings] = blitz, rapid, classical; 0 nếu chưa chơi ván tính điểm nào ở thể loại đó. */
+class LichessProfile(val name: String, val ratings: List<Int>)
+
+fun parseProfile(json: String): LichessProfile {
+    val o = JSONObject(json)
+    val perfs = o.optJSONObject("perfs")
+    fun rating(key: String): Int {
+        val p = perfs?.optJSONObject(key) ?: return 0
+        return if (p.optInt("games", 0) > 0) p.optInt("rating", 0) else 0
+    }
+    val name = o.optString("username").ifBlank { o.optString("id") }
+    return LichessProfile(name, listOf(rating("blitz"), rating("rapid"), rating("classical")))
+}
+
 /**
  * Ghép trận online qua Lichess Board API (miễn phí, dành cho ứng dụng bên thứ ba).
  * Chess.com không có API để chơi từ ứng dụng ngoài, nên Lichess là lựa chọn thay thế.
@@ -49,11 +63,11 @@ class LichessClient(private val token: String) {
         return LichessException(if (msg.isNotBlank()) "$hint: ${msg.take(160)}" else hint, resp.code)
     }
 
-    /** Lấy tên tài khoản. */
-    fun account(): String {
+    /** Hồ sơ của tài khoản đang đăng nhập: tên và điểm xếp hạng (cũng dùng để kiểm tra token còn hiệu lực). */
+    fun profile(): LichessProfile {
         http.newCall(req("/api/account").get().build()).execute().use { r ->
             if (!r.isSuccessful) throw fail(r)
-            return JSONObject(r.body?.string().orEmpty()).optString("username")
+            return parseProfile(r.body?.string().orEmpty())
         }
     }
 

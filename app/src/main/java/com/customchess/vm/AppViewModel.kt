@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -40,6 +41,7 @@ import com.customchess.net.Cancelable
 import com.customchess.net.Lan
 import com.customchess.net.LanHost
 import com.customchess.net.LichessClient
+import com.customchess.net.LichessException
 import com.customchess.net.Msg
 import com.customchess.net.StreamLink
 import kotlinx.coroutines.Dispatchers
@@ -72,8 +74,11 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     var authError by mutableStateOf<String?>(null)
         private set
 
-    val canPlayOnline: Boolean get() = user?.kind == UserKind.GOOGLE
-    val googleConfigured: Boolean get() = BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank()
+    /** Đấu online cần tài khoản thật (Lichess hoặc Google); khách thì không. */
+    val canPlayOnline: Boolean get() = user?.isMember == true
+    /** Lần đăng nhập Google gần nhất thất bại vì cấu hình: hiện nút hướng dẫn. */
+    var googleSetupHint by mutableStateOf(false)
+        private set
     val me: String get() = settings.playerName.ifBlank { user?.name ?: "Bạn" }
 
     init {
@@ -106,16 +111,49 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     // ------------------------------------------------------------------ đăng nhập
-    fun signInGoogle(activity: Activity) {
-        if (authBusy) return
-        authBusy = true
+    /**
+     * Bắt đầu đăng nhập Google. Nếu bản build có Web client ID thì dùng Credential Manager,
+     * không thì mở Google Sign-In cổ điển qua [launch] (chỉ cần OAuth client kiểu Android).
+     */
+    fun beginGoogle(activity: Activity?, launch: (Intent) -> Unit) {
+        if (authBusy || activity == null) return
         authError = null
+        googleSetupHint = false
+        if (BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank()) {
+            signInGoogle(activity)
+            return
+        }
+        authBusy = true
+        try {
+            launch(GoogleAuth.legacyIntent(activity))
+        } catch (e: Exception) {
+            authBusy = false
+            authError = e.message ?: "Không mở được đăng nhập Google"
+            googleSetupHint = true
+        }
+    }
+
+    /** Kết quả của Google Sign-In cổ điển (từ ActivityResult). */
+    fun onGoogleLegacyResult(data: Intent?) {
+        if (data == null) { authBusy = false; return } // đóng cửa sổ chọn tài khoản bằng nút Back
+        try {
+            applyUser(GoogleAuth.userFromLegacy(data))
+        } catch (e: AuthException) {
+            if (!e.cancelled) { authError = e.message; googleSetupHint = e.needsSetup }
+        } catch (e: Exception) {
+            authError = e.message ?: "Đăng nhập thất bại"
+        } finally {
+            authBusy = false
+        }
+    }
+
+    private fun signInGoogle(activity: Activity) {
+        authBusy = true
         viewModelScope.launch {
             try {
-                val u = GoogleAuth.signIn(activity, BuildConfig.GOOGLE_WEB_CLIENT_ID)
-                applyUser(u)
+                applyUser(GoogleAuth.signIn(activity, BuildConfig.GOOGLE_WEB_CLIENT_ID))
             } catch (e: AuthException) {
-                if (!e.cancelled) authError = e.message
+                if (!e.cancelled) { authError = e.message; googleSetupHint = e.needsSetup }
             } catch (e: Exception) {
                 authError = e.message ?: "Đăng nhập thất bại"
             } finally {
@@ -801,7 +839,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ đấu online (Lichess)
     var lichessUi by mutableStateOf(
-        LichessUi(connected = store.lichessToken.isNotBlank(), name = store.lichessName),
+        LichessUi(connected = store.lichessToken.isNotBlank(), name = store.lichessName, ratings = store.lichessRatings),
     )
         private set
     private var lichessClient: LichessClient? = null
@@ -814,20 +852,59 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         Thread { block() }.apply { isDaemon = true }.start()
     }
 
+    init {
+        // Kiểm tra lại token Lichess đã lưu (còn hiệu lực không) và cập nhật điểm xếp hạng.
+        refreshLichess()
+    }
+
+    private fun refreshLichess() {
+        val t = store.lichessToken
+        if (t.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val p = withContext(Dispatchers.IO) { LichessClient(t).profile() }
+                store.lichessName = p.name
+                store.lichessRatings = p.ratings
+                lichessUi = lichessUi.copy(connected = true, name = p.name, ratings = p.ratings)
+            } catch (e: LichessException) {
+                if (e.code == 401) lichessSessionExpired()
+            } catch (_: Exception) {
+                // không có mạng: giữ nguyên thông tin đã lưu
+            }
+        }
+    }
+
+    private fun lichessSessionExpired() {
+        val wasLogin = user?.kind == UserKind.LICHESS
+        stopLichess(keepLogin = false)
+        if (wasLogin) {
+            signOut()
+            authError = "Phiên Lichess đã hết hạn, hãy đăng nhập lại."
+        } else {
+            lichessUi = lichessUi.copy(error = "Phiên Lichess đã hết hạn, hãy kết nối lại.")
+        }
+    }
+
     /** Mở luồng sự kiện khi vào màn hình Đấu online (nếu đã có token). */
     fun enterOnline() {
         if (!canPlayOnline) return
         if (store.lichessToken.isNotBlank() && eventStream == null) openEventStream(LichessClient(store.lichessToken))
     }
 
-    fun startLichessLogin(context: Context) {
+    /**
+     * Đăng nhập Lichess bằng OAuth (PKCE): mở trang cấp quyền của Lichess trong tab trình duyệt ngay trong ứng dụng,
+     * xong Lichess chuyển hướng về customchess://oauth và [handleOAuthRedirect] nhận token. Dùng được cả để đăng nhập
+     * (màn hình đầu) lẫn để kết nối tài khoản Lichess cho người đang dùng Google.
+     */
+    fun startLichessLogin(activity: Activity?) {
+        if (activity == null) return
         val verifier = LichessClient.randomString()
         val state = LichessClient.randomString(16)
         store.pkceVerifier = verifier
         store.pkceState = state
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(LichessClient.authorizeUrl(state, verifier)))
         try {
-            context.startActivity(intent)
+            val tabs = CustomTabsIntent.Builder().setShowTitle(true).setShareState(CustomTabsIntent.SHARE_STATE_OFF).build()
+            tabs.launchUrl(activity, Uri.parse(LichessClient.authorizeUrl(state, verifier)))
             lichessUi = lichessUi.copy(error = null)
         } catch (e: ActivityNotFoundException) {
             lichessUi = lichessUi.copy(error = "Không mở được trình duyệt")
@@ -839,7 +916,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         if (uri.scheme != "customchess") return
         val err = uri.getQueryParameter("error")
         if (err != null) {
-            lichessUi = lichessUi.copy(error = "Lichess từ chối: ${uri.getQueryParameter("error_description") ?: err}")
+            lichessUi = lichessUi.copy(busy = false, error = "Lichess từ chối: ${uri.getQueryParameter("error_description") ?: err}")
             return
         }
         val code = uri.getQueryParameter("code") ?: return
@@ -861,7 +938,10 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Dùng token cá nhân (tạo tại lichess.org/account/oauth/token, quyền board:play). */
+    /**
+     * Kết nối bằng một token (từ OAuth hoặc token cá nhân dán vào, quyền board:play). Nếu đang là khách hoặc chưa
+     * đăng nhập thì tài khoản Lichess trở thành tài khoản của ứng dụng (mở khóa đấu online ngay).
+     */
     fun connectLichess(token: String) {
         val t = token.trim()
         if (t.isEmpty()) return
@@ -869,10 +949,13 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val client = LichessClient(t)
-                val name = withContext(Dispatchers.IO) { client.account() }
+                val p = withContext(Dispatchers.IO) { client.profile() }
                 store.lichessToken = t
-                store.lichessName = name
-                lichessUi = LichessUi(connected = true, name = name)
+                store.lichessName = p.name
+                store.lichessRatings = p.ratings
+                lichessUi = LichessUi(connected = true, name = p.name, ratings = p.ratings)
+                val cur = user
+                if (cur == null || cur.isGuest) applyUser(User(UserKind.LICHESS, p.name, "lichess.org/@/${p.name}"))
                 openEventStream(client)
             } catch (e: Exception) {
                 lichessUi = lichessUi.copy(busy = false, error = e.message ?: "Không kết nối được Lichess")
@@ -880,8 +963,13 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Ngắt Lichess. Nếu đang dùng chính tài khoản Lichess để đăng nhập thì cũng đăng xuất. */
     fun lichessLogout() {
-        stopLichess(keepLogin = false)
+        if (user?.kind == UserKind.LICHESS) {
+            signOut()
+        } else {
+            stopLichess(keepLogin = false)
+        }
     }
 
     private fun stopLichess(keepLogin: Boolean) {
@@ -893,6 +981,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             lichessClient = null
             store.lichessToken = ""
             store.lichessName = ""
+            store.lichessRatings = listOf(0, 0, 0)
             lichessUi = LichessUi()
         } else {
             lichessUi = lichessUi.copy(searching = false)

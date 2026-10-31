@@ -79,6 +79,9 @@ fun DemoBoard(theme: BoardTheme, modifier: Modifier = Modifier) {
 @Composable
 fun LoginScreen(vm: AppViewModel, theme: BoardTheme) {
     val ctx = LocalContext.current
+    val li = vm.lichessUi
+    val google = rememberGoogleSignIn(vm)
+    var guide by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
     ) {
@@ -89,21 +92,35 @@ fun LoginScreen(vm: AppViewModel, theme: BoardTheme) {
         Spacer(Modifier.height(8.dp))
         Text2("Cờ vua của riêng bạn: đấu với máy, với AI, với bạn bè, kể cả khi không có mạng.", Type.Body.copy(color = Pal.EggDim))
         Spacer(Modifier.height(28.dp))
-        PrimaryButton(
-            if (vm.authBusy) "Đang đăng nhập..." else "Đăng nhập bằng Google",
-            onClick = { ctx.findActivity()?.let { vm.signInGoogle(it) } },
-            enabled = !vm.authBusy && vm.googleConfigured,
+
+        ProviderButton(
+            if (li.busy) "Đang xác nhận với Lichess..." else "Đăng nhập bằng Lichess",
+            badge = { LichessBadge() },
+            onClick = { vm.startLichessLogin(ctx.findActivity()) },
+            enabled = !li.busy && !vm.authBusy,
+            filled = true,
         )
-        if (!vm.googleConfigured) {
-            ErrorText("Bản build này chưa có Google Web Client ID nên chưa đăng nhập Google được. Xem README để thêm. Bạn vẫn vào được bằng chế độ khách.")
-        }
+        ErrorText(li.error)
+        Text2(
+            "Một lần bấm là xong: Lichess cấp quyền và ứng dụng tự nhận, không cần dán gì. Chưa có tài khoản thì tạo miễn phí ở bước đó.",
+            Type.Small, Modifier.padding(top = 8.dp),
+        )
+        Spacer(Modifier.height(14.dp))
+        ProviderButton(
+            if (vm.authBusy) "Đang đăng nhập..." else "Đăng nhập bằng Google",
+            badge = { GoogleBadge() },
+            onClick = google,
+            enabled = !vm.authBusy && !li.busy,
+        )
         ErrorText(vm.authError)
-        Spacer(Modifier.height(12.dp))
+        LinkText("Hướng dẫn bật đăng nhập Google", { guide = true })
+        Spacer(Modifier.height(4.dp))
         GhostButton("Chơi với tư cách khách", onClick = vm::continueAsGuest, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(20.dp))
-        InfoCard("Khách dùng được mọi chế độ offline và chơi với AI bằng API key của riêng bạn. Đấu online với người lạ cần tài khoản Google.")
+        InfoCard("Khách dùng được mọi chế độ offline và chơi với AI bằng API key của riêng bạn. Đấu online với người lạ cần tài khoản Lichess hoặc Google.")
         Spacer(Modifier.height(24.dp))
     }
+    if (guide) GoogleGuideDialog { guide = false }
 }
 
 // ---------------------------------------------------------------------------------- trang chủ
@@ -145,7 +162,11 @@ fun HomeScreen(vm: AppViewModel, theme: BoardTheme) {
             Column(Modifier.weight(1f)) {
                 Text2("Custom Chess", Type.Title.copy(fontSize = 28.sp))
                 Text2(
-                    if (user == null || user.isGuest) "Chế độ khách" else "Xin chào, ${user.name}",
+                    when {
+                        user == null || user.isGuest -> "Chế độ khách"
+                        vm.lichessUi.ratingText.isNotEmpty() -> "Xin chào, ${user.name}  ·  ${vm.lichessUi.ratingText}"
+                        else -> "Xin chào, ${user.name}"
+                    },
                     Type.Small,
                 )
             }
@@ -161,7 +182,11 @@ fun HomeScreen(vm: AppViewModel, theme: BoardTheme) {
         Hairline()
         ModeRow(
             Pc.KING, "Đấu online",
-            if (vm.canPlayOnline) "Ghép trận với người chơi trên Lichess" else "Cần đăng nhập Google",
+            when {
+                !vm.canPlayOnline -> "Đăng nhập Lichess hoặc Google để mở khóa"
+                vm.lichessUi.connected -> "Ghép trận ngay với người chơi trên Lichess"
+                else -> "Kết nối Lichess để ghép trận"
+            },
             { vm.go(Screen.ONLINE) }, locked = !vm.canPlayOnline,
         )
         Spacer(Modifier.height(28.dp))

@@ -21,17 +21,21 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import com.customchess.core.Move
 import com.customchess.core.fileOf
 import com.customchess.core.rankOf
 import com.customchess.ui.PieceArt.drawPiece
+import kotlin.math.roundToInt
 
 private const val FRAME = 0.03f
 
@@ -56,6 +60,7 @@ fun ChessBoard(
     onSquare: (Int) -> Unit = {},
 ) {
     val measurer = rememberTextMeasurer()
+    val photo = rememberBoardPhoto(theme.photo)
     val anim = remember { Animatable(1f) }
     var prevPly by remember { mutableIntStateOf(plyCount) }
     LaunchedEffect(plyCount) {
@@ -149,7 +154,21 @@ fun ChessBoard(
             cornerRadius = CornerRadius(frame * 0.9f), style = Stroke(width = frame * 0.16f),
         )
 
-        // ô cờ
+        // ô cờ: bàn cờ ảnh vẽ ảnh rồi phủ màu mờ lên từng ô, bàn cờ thường tô màu đặc
+        if (theme.isPhoto) {
+            val boardPx = (cell * 8f).roundToInt()
+            val edge = frame.roundToInt()
+            if (photo != null) {
+                drawImage(
+                    photo, srcOffset = IntOffset.Zero, srcSize = IntSize(photo.width, photo.height),
+                    dstOffset = IntOffset(edge, edge), dstSize = IntSize(boardPx, boardPx),
+                    filterQuality = FilterQuality.Medium,
+                )
+            } else {
+                // ảnh đang giải mã: tạm một màu nền cùng tông
+                drawRect(theme.frameEdge, Offset(frame, frame), Size(cell * 8f, cell * 8f))
+            }
+        }
         for (r in 0..7) for (f in 0..7) {
             val sq = r * 8 + f
             val light = (r + f) % 2 == 1
@@ -158,10 +177,10 @@ fun ChessBoard(
 
         // nước đi cuối, ô đang chọn
         lastMove?.let {
-            drawRect(Pal.Gold.copy(alpha = 0.36f), origin(it.from), Size(cell, cell))
-            drawRect(Pal.Gold.copy(alpha = 0.46f), origin(it.to), Size(cell, cell))
+            drawRect(theme.highlight.copy(alpha = 0.36f), origin(it.from), Size(cell, cell))
+            drawRect(theme.highlight.copy(alpha = 0.46f), origin(it.to), Size(cell, cell))
         }
-        if (selected >= 0) drawRect(Pal.Gold.copy(alpha = 0.6f), origin(selected), Size(cell, cell))
+        if (selected >= 0) drawRect(theme.highlight.copy(alpha = 0.6f), origin(selected), Size(cell, cell))
         if (checkSquare >= 0) {
             val o = origin(checkSquare)
             drawRect(
@@ -173,8 +192,8 @@ fun ChessBoard(
             )
         }
 
-        // tọa độ
-        for (i in 0..7) {
+        // tọa độ (màu chữ lấy bản đặc của màu ô đối diện để luôn đọc được, kể cả khi màu ô là lớp phủ mờ)
+        if (Skin.showCoords) for (i in 0..7) {
             val fileSq = if (flipped) 7 - i else i
             val rankSq = if (flipped) i else 7 - i
             val bottomSq = (if (flipped) 7 else 0) * 8 + fileSq
@@ -186,12 +205,12 @@ fun ChessBoard(
             drawText(
                 measurer, "${'a' + fileSq}",
                 Offset(fo.x + cell * 0.80f, fo.y + cell * 0.74f),
-                coordStyle.copy(color = if (fileLight) theme.dark else theme.light),
+                coordStyle.copy(color = (if (fileLight) theme.dark else theme.light).copy(alpha = 1f)),
             )
             drawText(
                 measurer, "${rankSq + 1}",
                 Offset(ro.x + cell * 0.07f, ro.y + cell * 0.04f),
-                coordStyle.copy(color = if (rankLight) theme.dark else theme.light),
+                coordStyle.copy(color = (if (rankLight) theme.dark else theme.light).copy(alpha = 1f)),
             )
         }
 
@@ -200,7 +219,7 @@ fun ChessBoard(
             val o = origin(t)
             val c = o + Offset(cell / 2, cell / 2)
             if (board[t] != 0) {
-                drawCircle(Pal.Gold.copy(alpha = 0.85f), cell * 0.46f, c, style = Stroke(width = cell * 0.075f))
+                drawCircle(theme.highlight.copy(alpha = 0.9f), cell * 0.46f, c, style = Stroke(width = cell * 0.075f))
             } else {
                 drawCircle(Color(0xFF14100E).copy(alpha = 0.34f), cell * 0.17f, c)
             }

@@ -3,9 +3,7 @@ package com.customchess.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,10 +34,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.customchess.BuildConfig
 import com.customchess.vm.AppViewModel
 import com.customchess.vm.ONLINE_PRESETS
+import com.customchess.vm.Screen
 
 // ---------------------------------------------------------------------------------- đấu online
 
@@ -48,6 +46,8 @@ fun OnlineScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     val uri = LocalUriHandler.current
     val li = vm.lichessUi
+    val google = rememberGoogleSignIn(vm)
+    var guide by remember { mutableStateOf(false) }
     var time by remember { mutableIntStateOf(0) }
     var rated by remember { mutableStateOf(false) }
     var token by remember { mutableStateOf("") }
@@ -58,25 +58,37 @@ fun OnlineScreen(vm: AppViewModel) {
         ScreenHeader("Đấu online", vm::back)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             if (!vm.canPlayOnline) {
-                Text2("Cần đăng nhập Google", Type.Title)
+                // khách: mở khóa bằng cách đăng nhập
+                Text2("Đăng nhập để đấu online", Type.Title)
                 Spacer(Modifier.height(8.dp))
                 Text2(
-                    "Bạn đang ở chế độ khách nên chưa ghép trận với người lạ được. " +
-                        "Đăng nhập Google để mở khóa. Bạn vẫn chơi được với máy, với AI bằng API key và với bạn bè qua Wi-Fi hoặc Bluetooth.",
+                    "Bạn đang ở chế độ khách nên chưa ghép trận với người lạ được. Đăng nhập Lichess (nhanh nhất, ứng dụng tự lấy quyền chơi) " +
+                        "hoặc Google để mở khóa. Chơi với máy, với AI bằng API key và với bạn bè vẫn dùng bình thường.",
                     Type.Body.copy(color = Pal.EggDim),
                 )
                 Spacer(Modifier.height(20.dp))
-                PrimaryButton(
-                    if (vm.authBusy) "Đang đăng nhập..." else "Đăng nhập bằng Google",
-                    { ctx.findActivity()?.let { vm.signInGoogle(it) } },
-                    enabled = !vm.authBusy && vm.googleConfigured,
+                ProviderButton(
+                    if (li.busy) "Đang xác nhận với Lichess..." else "Đăng nhập bằng Lichess",
+                    badge = { LichessBadge() },
+                    onClick = { vm.startLichessLogin(ctx.findActivity()) },
+                    enabled = !li.busy && !vm.authBusy,
+                    filled = true,
                 )
-                if (!vm.googleConfigured) ErrorText("Bản build này chưa cấu hình Google Sign-In (xem README).")
+                ErrorText(li.error)
+                Spacer(Modifier.height(12.dp))
+                ProviderButton(
+                    if (vm.authBusy) "Đang đăng nhập..." else "Đăng nhập bằng Google",
+                    badge = { GoogleBadge() },
+                    onClick = google,
+                    enabled = !vm.authBusy && !li.busy,
+                )
                 ErrorText(vm.authError)
+                LinkText("Hướng dẫn bật đăng nhập Google", { guide = true })
                 return@Column
             }
 
             if (!li.connected) {
+                // đã đăng nhập Google nhưng chưa nối với Lichess
                 Text2("Ghép trận với người chơi thật", Type.Title)
                 Spacer(Modifier.height(8.dp))
                 Text2(
@@ -85,11 +97,14 @@ fun OnlineScreen(vm: AppViewModel) {
                     Type.Body.copy(color = Pal.EggDim),
                 )
                 Spacer(Modifier.height(20.dp))
-                PrimaryButton(
-                    if (li.busy) "Đang kết nối..." else "Kết nối tài khoản Lichess",
-                    { vm.startLichessLogin(ctx) }, enabled = !li.busy,
+                ProviderButton(
+                    if (li.busy) "Đang xác nhận với Lichess..." else "Kết nối tài khoản Lichess",
+                    badge = { LichessBadge() },
+                    onClick = { vm.startLichessLogin(ctx.findActivity()) },
+                    enabled = !li.busy,
+                    filled = true,
                 )
-                Text2("Trình duyệt sẽ mở để bạn cấp quyền chơi cờ. Chưa có tài khoản thì tạo miễn phí ở bước đó.", Type.Small, Modifier.padding(top = 8.dp))
+                Text2("Một tab trình duyệt mở ra để bạn cấp quyền chơi cờ, xong tự quay lại ứng dụng.", Type.Small, Modifier.padding(top = 8.dp))
                 Spacer(Modifier.height(16.dp))
                 GhostButton(if (tokenOpen) "Ẩn ô token" else "Dùng token cá nhân", { tokenOpen = !tokenOpen }, Modifier.fillMaxWidth())
                 if (tokenOpen) {
@@ -114,14 +129,21 @@ fun OnlineScreen(vm: AppViewModel) {
                 return@Column
             }
 
-            // đã kết nối
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Avatar(li.name.firstOrNull()?.uppercase() ?: "L", size = 44.dp)
+            // đã kết nối: hồ sơ và ghép trận
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Pal.Panel)
+                    .border(BorderStroke(1.dp, Pal.Hair), RoundedCornerShape(16.dp)).padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Avatar(li.name.firstOrNull()?.uppercase() ?: "L", size = 46.dp)
                 Column(Modifier.padding(start = 12.dp).weight(1f)) {
                     Text2(li.name, Type.Heading)
-                    Text2("Đã kết nối Lichess", Type.Small.copy(color = Pal.Jade))
+                    Text2(
+                        li.ratingText.ifEmpty { "Đã kết nối Lichess" },
+                        Type.Small.copy(color = if (li.ratingText.isEmpty()) Pal.Jade else Pal.EggDim),
+                    )
                 }
-                GhostButton("Ngắt", { vm.lichessLogout() })
+                GhostButton(if (vm.user?.kind == com.customchess.data.UserKind.LICHESS) "Đăng xuất" else "Ngắt", { vm.lichessLogout() })
             }
 
             if (li.searching) {
@@ -152,37 +174,18 @@ fun OnlineScreen(vm: AppViewModel) {
             Spacer(Modifier.height(24.dp))
         }
     }
+    if (guide) GoogleGuideDialog { guide = false }
 }
 
 // ---------------------------------------------------------------------------------- cài đặt
 
 @Composable
-private fun ThemeSwatch(theme: BoardTheme, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .clip(RoundedCornerShape(14.dp))
-            .border(BorderStroke(if (selected) 2.dp else 1.dp, if (selected) Pal.Gold else Pal.Hair), RoundedCornerShape(14.dp))
-            .background(Pal.Panel)
-            .clickable(onClick = onClick)
-            .padding(10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)).background(theme.frame).padding(4.dp)) {
-            Column {
-                for (r in 0..1) Row {
-                    for (c in 0..1) Box(Modifier.size(28.dp).background(if ((r + c) % 2 == 0) theme.light else theme.dark))
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text2(theme.name, Type.Small.copy(color = if (selected) Pal.Gold else Pal.EggDim))
-    }
-}
-
-@Composable
 fun SettingsScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     val user = vm.user
+    val li = vm.lichessUi
+    val google = rememberGoogleSignIn(vm)
+    var guide by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf(vm.settings.playerName) }
     Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp)) {
         ScreenHeader("Cài đặt", vm::back)
@@ -196,25 +199,58 @@ fun SettingsScreen(vm: AppViewModel) {
                 Column(Modifier.padding(start = 14.dp).weight(1f)) {
                     Text2(user?.name ?: "Chưa đăng nhập", Type.Heading)
                     Text2(
-                        if (user == null || user.isGuest) "Chế độ khách, không đấu online được" else user.email,
+                        when {
+                            user == null || user.isGuest -> "Chế độ khách, không đấu online được"
+                            user.kind == com.customchess.data.UserKind.LICHESS -> "Tài khoản Lichess" + li.ratingText.let { if (it.isEmpty()) "" else "  ·  $it" }
+                            else -> user.email
+                        },
                         Type.Small,
                     )
                 }
             }
             Spacer(Modifier.height(12.dp))
             if (user == null || user.isGuest) {
-                PrimaryButton(
-                    if (vm.authBusy) "Đang đăng nhập..." else "Đăng nhập bằng Google",
-                    { ctx.findActivity()?.let { vm.signInGoogle(it) } },
-                    enabled = !vm.authBusy && vm.googleConfigured,
+                ProviderButton(
+                    if (li.busy) "Đang xác nhận với Lichess..." else "Đăng nhập bằng Lichess",
+                    badge = { LichessBadge() },
+                    onClick = { vm.startLichessLogin(ctx.findActivity()) },
+                    enabled = !li.busy && !vm.authBusy,
+                    filled = true,
                 )
-                if (!vm.googleConfigured) ErrorText("Bản build này chưa cấu hình Google Sign-In (xem README).")
+                ErrorText(li.error)
+                Spacer(Modifier.height(10.dp))
+                ProviderButton(
+                    if (vm.authBusy) "Đang đăng nhập..." else "Đăng nhập bằng Google",
+                    badge = { GoogleBadge() },
+                    onClick = google,
+                    enabled = !vm.authBusy && !li.busy,
+                )
                 ErrorText(vm.authError)
-                Spacer(Modifier.height(8.dp))
+                LinkText("Hướng dẫn bật đăng nhập Google", { guide = true })
+                Spacer(Modifier.height(4.dp))
                 GhostButton("Quay về màn hình đăng nhập", { vm.signOut() }, Modifier.fillMaxWidth())
             } else {
+                if (user.kind == com.customchess.data.UserKind.GOOGLE) {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Pal.Panel)
+                            .border(BorderStroke(1.dp, Pal.Hair), RoundedCornerShape(14.dp)).padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text2("Lichess", Type.Body)
+                            Text2(if (li.connected) "Đã kết nối: ${li.name}" else "Chưa kết nối, cần để đấu online", Type.Small.copy(color = if (li.connected) Pal.Jade else Pal.EggDim))
+                        }
+                        if (li.connected) GhostButton("Ngắt", { vm.lichessLogout() })
+                        else GhostButton("Kết nối", { vm.startLichessLogin(ctx.findActivity()) }, enabled = !li.busy)
+                    }
+                    ErrorText(li.error)
+                    Spacer(Modifier.height(10.dp))
+                }
                 GhostButton("Đăng xuất", { vm.signOut() }, Modifier.fillMaxWidth(), danger = true)
             }
+
+            SectionTitle("Giao diện")
+            GhostButton("Màu sắc, bàn cờ ảnh, bộ quân", { vm.go(Screen.APPEARANCE) }, Modifier.fillMaxWidth())
 
             SectionTitle("Tên hiển thị")
             OutlinedTextField(
@@ -229,13 +265,7 @@ fun SettingsScreen(vm: AppViewModel) {
             )
             Text2("Tên này hiện cho bạn bè khi chơi qua Wi-Fi hoặc Bluetooth.", Type.Small, Modifier.padding(top = 6.dp))
 
-            SectionTitle("Bàn cờ")
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                BOARD_THEMES.forEachIndexed { i, t ->
-                    ThemeSwatch(t, vm.settings.boardTheme == i, { vm.updateSettings(vm.settings.copy(boardTheme = i)) }, Modifier.weight(1f))
-                }
-            }
-            Spacer(Modifier.height(8.dp))
+            SectionTitle("Ván cờ")
             SettingSwitch("Gợi ý nước đi", "Hiện chấm ở các ô quân có thể đến", vm.settings.showHints) {
                 vm.updateSettings(vm.settings.copy(showHints = it))
             }
@@ -244,7 +274,7 @@ fun SettingsScreen(vm: AppViewModel) {
             }
 
             SectionTitle("AI qua API")
-            GhostButton("API key và model", { vm.go(com.customchess.vm.Screen.AI_SETTINGS) }, Modifier.fillMaxWidth())
+            GhostButton("API key và model", { vm.go(Screen.AI_SETTINGS) }, Modifier.fillMaxWidth())
 
             SectionTitle("Giới thiệu")
             Text2("Custom Chess ${BuildConfig.VERSION_NAME}", Type.Body)
@@ -252,5 +282,5 @@ fun SettingsScreen(vm: AppViewModel) {
             Spacer(Modifier.height(28.dp))
         }
     }
+    if (guide) GoogleGuideDialog { guide = false }
 }
-

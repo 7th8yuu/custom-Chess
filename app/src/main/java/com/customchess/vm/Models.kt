@@ -6,7 +6,7 @@ import com.customchess.core.Position
 
 enum class Screen {
     LOGIN, HOME, ENGINE_SETUP, API_SETUP, AI_SETTINGS, FRIENDS, LOCAL_SETUP,
-    WIFI_HOST, WIFI_JOIN, BT_HOST, BT_JOIN, ONLINE, SETTINGS, GAME,
+    WIFI_HOST, WIFI_JOIN, BT_HOST, BT_JOIN, ONLINE, SETTINGS, APPEARANCE, GAME,
 }
 
 enum class Mode { ENGINE, API, LOCAL, LINK, LICHESS }
@@ -84,4 +84,11 @@ data class LichessUi(
     val busy: Boolean = false,
     val searching: Boolean = false,
     val error: String? = null,
-)
+    /** Điểm Lichess: blitz, rapid, classical (0 = chưa có hoặc chưa chơi đủ ván). */
+    val ratings: List<Int> = listOf(0, 0, 0),
+) {
+    /** Ví dụ "Blitz 1520 · Rapid 1610"; rỗng nếu chưa có điểm nào. */
+    val ratingText: String
+        get() = listOf("Blitz", "Rapid", "Classical").zip(ratings)
+            .filter { it.second > 0 }.joinToString(" · ") { "${it.first} ${it.second}" }
+}

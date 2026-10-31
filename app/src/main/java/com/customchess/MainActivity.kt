@@ -9,7 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import com.customchess.ui.AppRoot
-import com.customchess.ui.CustomChessTheme
 import com.customchess.vm.AppViewModel
 
 class MainActivity : ComponentActivity() {
@@ -22,11 +21,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         if (savedInstanceState == null) handleIntent(intent)
-        setContent {
-            CustomChessTheme {
-                AppRoot(vm)
-            }
-        }
+        setContent { AppRoot(vm) }
     }
 
     override fun onNewIntent(intent: Intent) {
