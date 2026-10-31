@@ -8,10 +8,7 @@ import com.customchess.color.Scheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.awt.RenderingHints
-import java.awt.image.BufferedImage
 import java.io.File
-import javax.imageio.ImageIO
 import kotlin.math.abs
 
 class ColorTest {
@@ -83,6 +80,21 @@ class ColorTest {
     private fun photo(name: String): File? =
         listOf("src/main/res/drawable-nodpi/$name", "app/src/main/res/drawable-nodpi/$name").map(::File).firstOrNull { it.exists() }
 
+    /**
+     * Lấy mẫu 96x96 điểm ảnh của file JPEG. Dùng reflection vì unit test của Android biên dịch với android.jar
+     * nên không thấy javax.imageio ở lúc biên dịch, dù JDK chạy test có sẵn.
+     */
+    private fun samplePixels(f: File): IntArray? = try {
+        val img = Class.forName("javax.imageio.ImageIO").getMethod("read", File::class.java).invoke(null, f)
+        val cls = img.javaClass
+        val w = cls.getMethod("getWidth").invoke(img) as Int
+        val h = cls.getMethod("getHeight").invoke(img) as Int
+        val rgb = cls.getMethod("getRGB", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+        IntArray(96 * 96) { i -> rgb.invoke(img, (i % 96) * w / 96, (i / 96) * h / 96) as Int }
+    } catch (_: Exception) {
+        null
+    }
+
     @Test
     fun boardSeedsComeFromThePhotos() {
         val expected = mapOf(
@@ -91,14 +103,7 @@ class ColorTest {
         )
         for ((file, seed) in expected) {
             val f = photo(file) ?: continue // chạy từ thư mục khác: bỏ qua thay vì báo lỗi giả
-            val src = ImageIO.read(f)
-            val img = BufferedImage(96, 96, BufferedImage.TYPE_INT_ARGB)
-            img.createGraphics().apply {
-                setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-                drawImage(src, 0, 0, 96, 96, null); dispose()
-            }
-            val px = IntArray(96 * 96)
-            img.getRGB(0, 0, 96, 96, px, 0, 96)
+            val px = samplePixels(f) ?: continue
             val found = Dominant.seed(px)
             val gap = hueGap(Hct.hueOf(found), Hct.hueOf(seed))
             assertTrue("$file: màu chọn từ ảnh %08X lệch %.0f độ so với seed %08X".format(found, gap, seed), gap <= 30.0)
