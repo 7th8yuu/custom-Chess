@@ -956,7 +956,9 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
                 lichessUi = LichessUi(connected = true, name = p.name, ratings = p.ratings)
                 val cur = user
                 if (cur == null || cur.isGuest) applyUser(User(UserKind.LICHESS, p.name, "lichess.org/@/${p.name}"))
-                openEventStream(client)
+                lichessClient = client
+                // Luồng sự kiện chỉ mở khi đang ở màn Đấu online, kẻo ván bắt đầu trên trang web lại tự bật lên trong ứng dụng.
+                if (screen == Screen.ONLINE) openEventStream(client)
             } catch (e: Exception) {
                 lichessUi = lichessUi.copy(busy = false, error = e.message ?: "Không kết nối được Lichess")
             }

@@ -221,7 +221,9 @@ fun ChessBoard(
             if (board[t] != 0) {
                 drawCircle(theme.highlight.copy(alpha = 0.9f), cell * 0.46f, c, style = Stroke(width = cell * 0.075f))
             } else {
-                drawCircle(Color(0xFF14100E).copy(alpha = 0.34f), cell * 0.17f, c)
+                // chấm tối trên ô sáng, chấm sáng trên ô tối
+                val lightSquare = (rankOf(t) + fileOf(t)) % 2 == 1
+                drawCircle(if (lightSquare) Color(0xFF14100E).copy(alpha = 0.34f) else Color.White.copy(alpha = 0.42f), cell * 0.17f, c)
             }
         }
 
