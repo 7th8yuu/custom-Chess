@@ -121,7 +121,7 @@ class PuzzleRun(
                 status = PuzzleStatus.ERROR
                 return
             }
-            setPuzzle(p)
+            loadPuzzle(p)
         } catch (e: Exception) {
             error = e.message ?: "Không tải được câu đố"
             status = PuzzleStatus.ERROR
@@ -141,7 +141,7 @@ class PuzzleRun(
         return near.random(Random.Default)
     }
 
-    private fun setPuzzle(p: Puzzle) {
+    private fun loadPuzzle(p: Puzzle) {
         val start = p.start() ?: return
         served.add(p.id)
         puzzle = p
