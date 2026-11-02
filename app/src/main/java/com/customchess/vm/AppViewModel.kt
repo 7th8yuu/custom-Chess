@@ -1234,13 +1234,13 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             is Msg.Hello -> {
                 peerName = m.name
                 if (linkIsHost && !(ui.active && mode == Mode.LINK)) {
-                    val hostWhite = when (lobbyColor) { 0 -> true; 1 -> false; else -> Random.nextBoolean() }
+                    val hostWhite = com.customchess.net.Sides.hostIsWhite(lobbyColor) { Random.nextBoolean() }
                     val tp = TIME_PRESETS.getOrElse(lobbyTime) { TIME_PRESETS[0] }
-                    link?.send(Msg.Start(guestIsWhite = !hostWhite, baseSec = tp.baseSec, incSec = tp.incSec))
+                    link?.send(com.customchess.net.Sides.startFor(hostWhite, tp.baseSec, tp.incSec))
                     startLinkGame(hostWhite, tp)
                 }
             }
-            is Msg.Start -> if (!linkIsHost) startLinkGame(!m.guestIsWhite, TimePreset("", m.baseSec, m.incSec))
+            is Msg.Start -> if (!linkIsHost) startLinkGame(com.customchess.net.Sides.guestIsWhite(m), TimePreset("", m.baseSec, m.incSec))
             is Msg.Move -> {
                 if (mode != Mode.LINK || !ui.active || ui.result != null) return
                 val mv = game.position.parseMove(m.uci)

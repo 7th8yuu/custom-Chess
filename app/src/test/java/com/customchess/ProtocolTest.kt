@@ -5,6 +5,7 @@ import com.customchess.core.MoveExtract
 import com.customchess.net.Announce
 import com.customchess.net.Msg
 import com.customchess.net.Protocol
+import com.customchess.net.Sides
 import com.customchess.net.StreamLink
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -85,5 +86,24 @@ class ProtocolTest {
         b.close()
         assertTrue("close not noticed", closed.await(5, TimeUnit.SECONDS))
         a.close(); server.close()
+    }
+
+    /** Hai máy luôn khác màu, dù chủ phòng chọn Trắng, Đen hay ngẫu nhiên (cả hai kết quả của đồng xu). */
+    @Test fun hostAndGuestGetOppositeColors() {
+        for (choice in 0..2) for (coin in listOf(true, false)) {
+            val hostWhite = Sides.hostIsWhite(choice) { coin }
+            when (choice) {
+                0 -> assertTrue(hostWhite)
+                1 -> assertTrue(!hostWhite)
+                else -> assertEquals(coin, hostWhite)
+            }
+            // START đi qua đường truyền dạng chữ rồi mới tới máy khách.
+            val wire = Protocol.encode(Sides.startFor(hostWhite, 300, 2))
+            val start = Protocol.parse(wire) as Msg.Start
+            val guestWhite = Sides.guestIsWhite(start)
+            assertTrue("choice=$choice coin=$coin", hostWhite != guestWhite)
+            assertEquals(300, start.baseSec)
+            assertEquals(2, start.incSec)
+        }
     }
 }
