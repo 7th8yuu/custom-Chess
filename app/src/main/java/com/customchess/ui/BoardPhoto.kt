@@ -10,21 +10,29 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private val photoCache = HashMap<Int, ImageBitmap>()
+private val photoCache = HashMap<String, ImageBitmap>()
 
 /**
- * Ảnh nền của bàn cờ ảnh, giải mã ngoài luồng giao diện và giữ lại để các bàn cờ khác dùng chung.
- * Trả về null khi [res] = 0 hoặc ảnh chưa giải mã xong (lúc đó bàn cờ vẽ tạm một màu nền).
+ * Ảnh nền của bàn cờ ảnh (có sẵn hoặc do người dùng thêm), giải mã ngoài luồng giao diện và giữ lại để dùng chung.
+ * Trả về null khi bàn cờ không dùng ảnh hoặc ảnh chưa giải mã xong (lúc đó bàn cờ vẽ tạm một màu nền).
  */
 @Composable
-fun rememberBoardPhoto(res: Int): ImageBitmap? {
-    if (res == 0) return null
+fun rememberBoardPhoto(theme: BoardTheme): ImageBitmap? {
+    if (!theme.isPhoto) return null
     val resources = LocalContext.current.applicationContext.resources
-    val state = produceState<ImageBitmap?>(initialValue = photoCache[res], res) {
-        value = photoCache[res] ?: withContext(Dispatchers.IO) {
+    val key = theme.key
+    val state = produceState<ImageBitmap?>(initialValue = photoCache[key], key) {
+        value = photoCache[key] ?: withContext(Dispatchers.IO) {
             val opts = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
-            BitmapFactory.decodeResource(resources, res, opts)?.asImageBitmap()
-        }?.also { photoCache[res] = it }
+            val bmp = if (theme.photo != 0) BitmapFactory.decodeResource(resources, theme.photo, opts)
+            else theme.photoFile?.let { BitmapFactory.decodeFile(it, opts) }
+            bmp?.asImageBitmap()
+        }?.also { photoCache[key] = it }
     }
     return state.value
+}
+
+/** Quên ảnh đã nạp (khi xóa hoặc thay ảnh). */
+fun forgetBoardPhoto(keyPrefix: String) {
+    photoCache.keys.filter { it.startsWith(keyPrefix) }.forEach { photoCache.remove(it) }
 }

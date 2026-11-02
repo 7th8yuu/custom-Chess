@@ -61,11 +61,10 @@ data class Puzzle(
             val o = JSONObject(json)
             val pz = o.getJSONObject("puzzle")
             val pgn = o.getJSONObject("game").getString("pgn")
-            val tokens = pgn.replace(Regex("\\{[^}]*\\}"), " ").split(Regex("\\s+"))
-                .map { it.trim() }
-                .filter { it.isNotEmpty() && !it.endsWith(".") && !it[0].isDigit() || it.length > 1 && it[0].isDigit() && !it.contains('.') && it.any { c -> c.isLetter() } }
-            // lọc số thứ tự nước "12." và "12..." bị lẫn
-            val sans = tokens.filter { !Regex("^\\d+\\.+$").matches(it) && it != "1-0" && it != "0-1" && it != "1/2-1/2" && it != "*" }
+            // bỏ chú thích {...}, số thứ tự nước ("12." hoặc "12...") và kết quả ván
+            val sans = pgn.replace(Regex("\\{[^}]*\\}"), " ").split(Regex("\\s+"))
+                .map { it.replace(Regex("^\\d+\\.+"), "") }
+                .filter { it.isNotEmpty() && it != "1-0" && it != "0-1" && it != "1/2-1/2" && it != "*" }
             if (sans.isEmpty()) return@runCatching null
             var pos = Position.fromFen(com.customchess.core.START_FEN) ?: return@runCatching null
             val ucis = ArrayList<String>()

@@ -66,6 +66,14 @@ object Pal {
     val EggDim: Color get() = Color(Skin.roles.onSurfaceVariant)
     val Jade: Color get() = if (Skin.dark) Color(0xFF58BDA3) else Color(0xFF1E7F69)
     val Alert: Color get() = Color(Skin.roles.error)
+    val Secondary: Color get() = Color(Skin.roles.secondary)
+    val Tertiary: Color get() = Color(Skin.roles.tertiary)
+    val PrimaryContainer: Color get() = Color(Skin.roles.primaryContainer)
+    val OnPrimaryContainer: Color get() = Color(Skin.roles.onPrimaryContainer)
+    val SecondaryContainer: Color get() = Color(Skin.roles.secondaryContainer)
+    val OnSecondaryContainer: Color get() = Color(Skin.roles.onSecondaryContainer)
+    val TertiaryContainer: Color get() = Color(Skin.roles.tertiaryContainer)
+    val OnTertiaryContainer: Color get() = Color(Skin.roles.onTertiaryContainer)
 }
 
 /**
@@ -85,8 +93,34 @@ data class BoardTheme(
     @DrawableRes val photo: Int = 0,
     @DrawableRes val thumb: Int = 0,
     val highlight: Color = Color(0xFFD9AE4B),
+    /** Ảnh người dùng tự thêm (đường dẫn file trong bộ nhớ ứng dụng). */
+    val photoFile: String? = null,
+    /** Khóa bộ nhớ đệm ảnh. */
+    val key: String = id,
 ) {
-    val isPhoto: Boolean get() = photo != 0
+    val isPhoto: Boolean get() = photo != 0 || photoFile != null
+}
+
+/** Chỉnh độ đậm lớp phủ lên ô của bàn cờ ảnh (100 = mặc định). */
+fun BoardTheme.withVeil(percent: Int): BoardTheme {
+    if (!isPhoto || percent == 100) return this
+    val k = percent / 100f
+    return copy(
+        light = light.copy(alpha = (light.alpha * k).coerceIn(0f, 0.85f)),
+        dark = dark.copy(alpha = (dark.alpha * k).coerceIn(0f, 0.92f)),
+    )
+}
+
+/** Bàn cờ từ ảnh người dùng thêm: [seed] là màu chủ đạo đã tính lúc nhập ảnh. */
+fun customBoardTheme(id: String, name: String, seed: Int, muted: Boolean, file: String): BoardTheme {
+    val hue = Hct.hueOf(seed)
+    return BoardTheme(
+        id = "c:$id", name = name,
+        light = Color(0x47FFFFFF), dark = Color(Hct.solve(hue, 40.0, 14.0)).copy(alpha = 0.46f),
+        frame = Color(Hct.solve(hue, 30.0, 68.0)), frameEdge = Color(Hct.solve(hue, 28.0, 20.0)),
+        seed = seed, muted = muted, photoFile = file, key = "c:$id:${java.io.File(file).lastModified()}",
+        highlight = Color(0xFFFFD24D),
+    )
 }
 
 private fun photoTheme(
@@ -114,16 +148,16 @@ val BOARD_THEMES: List<BoardTheme> = listOf(
 object Type {
     // Các kiểu chữ là getter để màu lấy theo bảng màu hiện hành mỗi lần vẽ.
     val Display: TextStyle get() = TextStyle(
-        fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-        fontSize = 36.sp, lineHeight = 40.sp, letterSpacing = (-0.6).sp, color = Pal.Egg,
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.ExtraBold,
+        fontSize = 34.sp, lineHeight = 38.sp, letterSpacing = (-0.8).sp, color = Pal.Egg,
     )
     val Title: TextStyle get() = TextStyle(
-        fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold,
-        fontSize = 24.sp, lineHeight = 30.sp, letterSpacing = (-0.2).sp, color = Pal.Egg,
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold,
+        fontSize = 22.sp, lineHeight = 28.sp, letterSpacing = (-0.3).sp, color = Pal.Egg,
     )
     val Heading: TextStyle get() = TextStyle(
-        fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold,
-        fontSize = 18.sp, lineHeight = 24.sp, color = Pal.Egg,
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold,
+        fontSize = 17.sp, lineHeight = 23.sp, color = Pal.Egg,
     )
     val Body: TextStyle get() = TextStyle(fontSize = 15.sp, lineHeight = 22.sp, color = Pal.Egg)
     val Small: TextStyle get() = TextStyle(fontSize = 13.sp, lineHeight = 18.sp, color = Pal.EggDim)

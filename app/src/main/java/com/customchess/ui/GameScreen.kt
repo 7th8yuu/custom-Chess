@@ -105,6 +105,7 @@ private fun modeTitle(m: Mode) = when (m) {
     Mode.LOCAL -> "Cùng một máy"
     Mode.LINK -> "Chơi với bạn bè"
     Mode.LICHESS -> "Đấu online"
+    Mode.BOT -> "Đấu bot"
 }
 
 // ---------------------------------------------------------------------------------- thành phần
@@ -199,13 +200,14 @@ private fun MoveStrip(sans: List<String>) {
 
 @Composable
 private fun ControlButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, danger: Boolean = false) {
+    val shape = RoundedCornerShape(18.dp)
     Box(
         modifier
             .height(46.dp)
             .alpha(if (enabled) 1f else 0.35f)
-            .clip(RoundedCornerShape(12.dp))
-            .border(BorderStroke(1.dp, if (danger) Pal.Alert.copy(alpha = 0.6f) else Pal.Hair), RoundedCornerShape(12.dp))
-            .clickable(enabled = enabled, onClick = onClick),
+            .pressable(onClick, enabled)
+            .glass(shape, tint = if (danger) Pal.Alert else Color.Unspecified)
+            .clip(shape),
         contentAlignment = Alignment.Center,
     ) {
         Text2(text, Type.Button.copy(fontSize = 13.sp, color = if (danger) Pal.Alert else Pal.Egg))
@@ -242,6 +244,8 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
     }
     val gameOver = ui.result != null
 
+    val won = ui.result?.let { r -> r.winnerWhite != null && (ui.myWhite == null || r.winnerWhite == ui.myWhite) } == true
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp),
     ) {
@@ -249,6 +253,11 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
             if (ui.result == null && ui.plyCount > 0 && !ui.disconnected) leaveAsk = true else vm.leaveGame()
         })
         PlayerSide(vm, topWhite)
+        val evalCp = ui.evalCp
+        if (vm.settings.evalBar && evalCp != null) {
+            Spacer(Modifier.height(2.dp))
+            EvalBar(evalCp)
+        }
         Spacer(Modifier.height(4.dp))
         ChessBoard(
             board = ui.board, flipped = ui.flipped, lastMove = ui.lastMove, checkSquare = ui.checkSquare,
@@ -258,6 +267,8 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
             showHints = vm.settings.showHints,
             isMine = mineAt,
             onSquare = vm::onSquareTap,
+            capture = ui.lastCapture,
+            highlightLast = vm.settings.highlightLast,
         )
         Spacer(Modifier.height(4.dp))
         PlayerSide(vm, !topWhite)
@@ -291,27 +302,12 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
         }
         Spacer(Modifier.height(20.dp))
     }
+    ConfettiBurst(if (won) 1 else 0, Modifier.fillMaxSize())
+    }
 
     // ---- hộp thoại ----
     if (ui.promotion != null) {
-        AlertDialog(
-            onDismissRequest = vm::cancelPromotion,
-            containerColor = Pal.Panel,
-            title = { Text2("Phong cấp thành", Type.Title) },
-            text = {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    for (t in listOf(Pc.QUEEN, Pc.ROOK, Pc.BISHOP, Pc.KNIGHT)) {
-                        Box(
-                            Modifier.size(62.dp).clip(RoundedCornerShape(12.dp)).background(Pal.PanelHi)
-                                .clickable { vm.choosePromotion(t) },
-                            contentAlignment = Alignment.Center,
-                        ) { PieceIcon(if (ui.whiteToMove) t else -t, 52.dp) }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = vm::cancelPromotion) { Text2("Hủy", Type.Button.copy(color = Pal.EggDim)) } },
-        )
+        PromotionDialog(white = ui.whiteToMove, onChoose = vm::choosePromotion, onCancel = vm::cancelPromotion)
     }
 
     if (ui.drawOffered && !gameOver) {
@@ -354,7 +350,8 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
 
     val res = ui.result
     if (res != null && !resultDismissed) {
-        val canRematch = ui.mode == Mode.ENGINE || ui.mode == Mode.API || ui.mode == Mode.LOCAL
+        val canRematch = ui.mode == Mode.ENGINE || ui.mode == Mode.API || ui.mode == Mode.LOCAL || ui.mode == Mode.BOT
+        val saved = vm.history.firstOrNull()?.takeIf { ui.plyCount >= 2 }
         AlertDialog(
             onDismissRequest = { resultDismissed = true },
             containerColor = Pal.Panel,
@@ -368,6 +365,7 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
             dismissButton = {
                 Row {
                     TextButton(onClick = { resultDismissed = true }) { Text2("Xem bàn cờ", Type.Button.copy(color = Pal.EggDim)) }
+                    if (saved != null) TextButton(onClick = { vm.openReview(saved) }) { Text2("Phân tích", Type.Button.copy(color = Pal.EggDim)) }
                     if (canRematch) TextButton(onClick = { vm.leaveGame() }) { Text2("Thoát", Type.Button.copy(color = Pal.EggDim)) }
                 }
             },
@@ -396,8 +394,9 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
 @Composable
 private fun PlayerSide(vm: AppViewModel, white: Boolean) {
     val ui = vm.ui
-    val captured = missingPieces(ui.board, !white)
-    val lead = material(ui.board, white) - material(ui.board, !white)
+    val show = vm.settings.showCaptured
+    val captured = if (show) missingPieces(ui.board, !white) else emptyList()
+    val lead = if (show) material(ui.board, white) - material(ui.board, !white) else 0
     PlayerBar(
         name = if (white) ui.whiteName else ui.blackName,
         sub = if (white) ui.whiteSub else ui.blackSub,
@@ -411,3 +410,16 @@ private fun PlayerSide(vm: AppViewModel, white: Boolean) {
     )
 }
 
+
+/** Thanh đánh giá thế cờ nằm ngang: phần sáng là lợi thế của Trắng. */
+@Composable
+private fun EvalBar(cp: Int) {
+    val frac = (0.5f + 0.5f * (2f / (1f + kotlin.math.exp(-0.0042f * cp.coerceIn(-1500, 1500))) - 1f)).coerceIn(0.03f, 0.97f)
+    val shown = if (abs(cp) > 90_000) "#" else String.format(java.util.Locale.US, "%+.1f", cp / 100f)
+    Row(Modifier.fillMaxWidth().height(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF1B1714))) {
+            Box(Modifier.fillMaxWidth(frac).height(8.dp).background(Color(0xFFF2E8D2)))
+        }
+        Text2(shown, Type.Small.copy(fontSize = 11.sp), Modifier.padding(start = 8.dp))
+    }
+}

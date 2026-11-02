@@ -404,7 +404,33 @@ fun verify(p: Puz): Boolean {
     return true
 }
 
+/** Đọc lại một file câu đố, kiểm tra từng câu, bỏ trùng và sắp theo điểm: puzzlegen verify <vào> <ra> */
+fun verifyFile(inp: File, out: File) {
+    val seen = HashSet<String>()
+    val good = ArrayList<Puz>()
+    for (line in inp.readLines()) {
+        val f = line.trim().split('|')
+        if (f.size < 5) continue
+        val p0 = Position.fromFen(f[1]) ?: continue
+        var pos = p0
+        val mv = ArrayList<Move>()
+        var ok = true
+        for (u in f[2].split(' ')) {
+            val m = pos.parseMove(u)
+            if (m == null) { ok = false; break }
+            mv.add(m); pos = pos.apply(m)
+        }
+        if (!ok || !seen.add(f[1])) continue
+        val pz = Puz(f[0], f[1], mv, f[3].toIntOrNull() ?: 1200, f[4].split(' '))
+        if (verify(pz)) good.add(pz)
+    }
+    good.sortBy { it.rating }
+    out.writeText(good.joinToString("\n") { it.line() } + "\n")
+    println("giữ ${good.size} câu")
+}
+
 fun main(args: Array<String>) {
+    if (args.getOrNull(0) == "verify") { verifyFile(File(args[1]), File(args[2])); return }
     val minutes = args.getOrNull(0)?.toDoubleOrNull() ?: 5.0
     val outFile = File(args.getOrNull(1) ?: "puzzles.txt")
     val seed = args.getOrNull(2)?.toIntOrNull() ?: 7

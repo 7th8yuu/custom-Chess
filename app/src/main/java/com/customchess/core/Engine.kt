@@ -3,7 +3,7 @@ package com.customchess.core
 import kotlin.math.abs
 
 /** AI nội bộ (chạy offline): negamax + alpha-beta + quiescence + đào sâu dần theo thời gian. */
-class Engine(private val level: Int) {
+class Engine(private val level: Int, private val depthOverride: Int = 0, private val timeOverrideMs: Long = 0L) {
 
     private class Abort : RuntimeException(null, null, false, false)
 
@@ -11,8 +11,66 @@ class Engine(private val level: Int) {
     private var nodes = 0L
     private var stop: () -> Boolean = { false }
 
-    val depthForLevel: Int get() = when (level) { 1 -> 1; 2 -> 2; 3 -> 3; 4 -> 4; else -> 6 }
-    private val timeMs: Long get() = when (level) { 1 -> 300L; 2 -> 600L; 3 -> 1500L; 4 -> 3000L; else -> 6000L }
+    val depthForLevel: Int get() = if (depthOverride > 0) depthOverride else when (level) { 1 -> 1; 2 -> 2; 3 -> 3; 4 -> 4; else -> 6 }
+    private val timeMs: Long get() = if (timeOverrideMs > 0) timeOverrideMs else when (level) { 1 -> 300L; 2 -> 600L; 3 -> 1500L; 4 -> 3000L; else -> 6000L }
+
+    /** Kết quả phân tích: nước tốt nhất và điểm theo góc nhìn quân trắng (centipawn, chiếu hết ≈ ±MATE). */
+    class Analysis(val best: Move?, val scoreWhite: Int, val depth: Int)
+
+    /** Đào sâu dần tới [maxDepth] hoặc hết [limitMs]; dùng cho thanh đánh giá và phân tích ván. */
+    fun analyze(root: Position, maxDepth: Int, limitMs: Long, shouldStop: () -> Boolean = { false }): Analysis {
+        val pos = root.copy()
+        val legal = pos.legalMoves()
+        if (legal.isEmpty()) {
+            val s = if (pos.inCheck()) (if (pos.whiteToMove) -MATE else MATE) else 0
+            return Analysis(null, s, 0)
+        }
+        stop = shouldStop
+        deadline = System.nanoTime() + limitMs * 1_000_000L
+        nodes = 0
+        var best = orderMoves(pos, legal)[0]
+        var bestScore = evaluateForSide(pos)
+        var reached = 0
+        for (depth in 1..maxDepth) {
+            try {
+                var alpha = -INF
+                var iterBest: Move? = null
+                var iterScore = -INF
+                for (m in orderMoves(pos, legal, best)) {
+                    val s = -negamax(pos.apply(m), depth - 1, -INF, -alpha, 1)
+                    if (s > iterScore) { iterScore = s; iterBest = m }
+                    if (s > alpha) alpha = s
+                }
+                if (iterBest != null) { best = iterBest; bestScore = iterScore; reached = depth }
+                if (abs(bestScore) > MATE - 200) break
+            } catch (_: Abort) {
+                break
+            }
+        }
+        return Analysis(best, if (pos.whiteToMove) bestScore else -bestScore, reached)
+    }
+
+    /**
+     * Điểm của từng nước đi ở độ sâu cố định (góc nhìn bên đi), dùng cho các bot yếu: chọn nước có điểm cộng nhiễu.
+     * Nếu hết giờ giữa chừng, các nước còn lại được chấm bằng đánh giá tĩnh.
+     */
+    fun rankMoves(root: Position, depth: Int, limitMs: Long, shouldStop: () -> Boolean = { false }): List<Pair<Move, Int>> {
+        val pos = root.copy()
+        val legal = pos.legalMoves()
+        stop = shouldStop
+        deadline = System.nanoTime() + limitMs * 1_000_000L
+        nodes = 0
+        val out = ArrayList<Pair<Move, Int>>(legal.size)
+        var timedOut = false
+        for (m in orderMoves(pos, legal)) {
+            val child = pos.apply(m)
+            val s = if (!timedOut) {
+                try { -negamax(child, depth - 1, -INF, INF, 1) } catch (_: Abort) { timedOut = true; -evaluateForSide(child) }
+            } else -evaluateForSide(child)
+            out.add(m to s)
+        }
+        return out
+    }
 
     /**
      * Chọn nước đi cho bên đang tới lượt. [history] là số lần mỗi thế đã xuất hiện, dùng để
