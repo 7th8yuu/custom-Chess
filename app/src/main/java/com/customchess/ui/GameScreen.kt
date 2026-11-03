@@ -269,6 +269,7 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
             onSquare = vm::onSquareTap,
             capture = ui.lastCapture,
             highlightLast = vm.settings.highlightLast,
+            arrow = vm.analysis?.lines?.firstOrNull()?.move,
         )
         Spacer(Modifier.height(4.dp))
         PlayerSide(vm, !topWhite)
@@ -300,6 +301,16 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
             ControlButton("Xin hòa", vm::offerDraw, Modifier.weight(1f), enabled = !gameOver && !ui.disconnected && !ui.drawSent && ui.plyCount > 0)
             ControlButton("Đầu hàng", { resignAsk = true }, Modifier.weight(1f), enabled = !gameOver && !ui.disconnected, danger = true)
         }
+        if (vm.analysisAllowed()) {
+            Spacer(Modifier.height(8.dp))
+            ControlButton(
+                if (vm.analysis == null) "Phân tích nước cờ" else "Đóng phân tích",
+                { if (vm.analysis == null) vm.openAnalysis() else vm.closeAnalysis() },
+                Modifier.fillMaxWidth(),
+                enabled = !ui.thinking,
+            )
+        }
+        vm.analysis?.let { AnalysisPanel(vm, it) }
         Spacer(Modifier.height(20.dp))
     }
     ConfettiBurst(if (won) 1 else 0, Modifier.fillMaxSize())

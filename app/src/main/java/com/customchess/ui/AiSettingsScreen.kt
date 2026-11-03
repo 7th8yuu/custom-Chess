@@ -38,12 +38,22 @@ fun AiSettingsScreen(vm: AppViewModel) {
     val uri = LocalUriHandler.current
     var showKey by remember { mutableStateOf(false) }
     var advanced by remember { mutableStateOf(slot.baseUrl.isNotEmpty()) }
+    var optionalOpen by remember { mutableStateOf(provider.isOptional) }
 
     Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp)) {
         ScreenHeader("API key và model", vm::back)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (p in Provider.values()) Pill(p.label, p == provider, { vm.selectProvider(p) })
+                Pill(Provider.MAIN.label, provider == Provider.MAIN, { vm.selectProvider(Provider.MAIN) })
+                Pill(if (optionalOpen) "Tùy chọn ▲" else "Tùy chọn ▼", provider.isOptional, { optionalOpen = !optionalOpen })
+            }
+            if (optionalOpen) {
+                Spacer(Modifier.height(8.dp))
+                Text2("Tùy chọn: dùng nếu bạn đã có key của các hãng này.", Type.Small)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (p in Provider.OPTIONAL) Pill(p.label, p == provider, { vm.selectProvider(p) })
+                }
             }
             Spacer(Modifier.height(10.dp))
             Text2(provider.tagline, Type.Small)

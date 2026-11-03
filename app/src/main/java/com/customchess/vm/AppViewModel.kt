@@ -22,6 +22,8 @@ import com.customchess.BuildConfig
 import com.customchess.ai.AiClient
 import com.customchess.ai.AiException
 import com.customchess.ai.Provider
+import com.customchess.core.Coach
+import com.customchess.core.CoachLine
 import com.customchess.core.Engine
 import com.customchess.core.Game
 import com.customchess.core.GameResult
@@ -719,6 +721,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         val wasMode = mode
         val wasActive = ui.active
         aiJob?.cancel()
+        closeAnalysis()
         clockJob?.cancel()
         if (wasMode == Mode.LINK) closeLink()
         if (wasMode == Mode.LICHESS) {
@@ -842,6 +845,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     private fun commitMove(m: Move, byMe: Boolean) {
+        closeAnalysis()
         val mover = game.position.whiteToMove
         val before = game.position
         val movedPiece = abs(before.board[m.from])
@@ -889,6 +893,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun undo() {
         if (!ui.canUndo) return
         aiJob?.cancel()
+        closeAnalysis()
         val n = when {
             mode == Mode.LOCAL -> 1
             game.position.whiteToMove == myWhite -> 2
@@ -1015,6 +1020,74 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             else -> Unit
         }
     }
+
+
+    // ------------------------------------------------------------------ phân tích nước cờ trong ván
+    /** Kết quả phân tích thế cờ hiện tại. [ply] là số nước đã đi lúc phân tích, để bỏ kết quả cũ khi thế cờ đã đổi. */
+    data class AnalysisUi(
+        val ply: Int,
+        val lines: List<CoachLine> = emptyList(),
+        val engineBusy: Boolean = true,
+        val aiText: String? = null,
+        val aiBusy: Boolean = false,
+        val aiError: String? = null,
+    )
+
+    var analysis by mutableStateOf<AnalysisUi?>(null)
+        private set
+    private var analysisJob: Job? = null
+
+    /**
+     * Có được phân tích lúc này không. Ván online (Lichess) và ván với bạn bè đang diễn ra thì không (tránh gian lận);
+     * kết thúc rồi thì phân tích được mọi ván.
+     */
+    fun analysisAllowed(): Boolean {
+        if (!settings.analysis || !ui.active) return false
+        if (ui.result != null) return true
+        return mode == Mode.ENGINE || mode == Mode.API || mode == Mode.BOT || mode == Mode.LOCAL
+    }
+
+    fun openAnalysis() {
+        if (!analysisAllowed()) return
+        analysisJob?.cancel()
+        val pos = game.position
+        val ply = game.moves.size
+        analysis = AnalysisUi(ply)
+        analysisJob = viewModelScope.launch {
+            val lines = withContext(Dispatchers.Default) { Coach.topMoves(pos, 3, 4, 5000) { !isActive } }
+            if (analysis?.ply == ply) analysis = AnalysisUi(ply, lines, engineBusy = false)
+        }
+    }
+
+    fun closeAnalysis() {
+        analysisJob?.cancel()
+        analysisJob = null
+        if (analysis != null) analysis = null
+    }
+
+    /** Nhờ AI giải thích (chỉ khi người dùng bấm, vì mỗi lần là một lần gọi API tính phí/hạn mức). */
+    fun askAiAnalysis() {
+        val a = analysis ?: return
+        if (a.aiBusy || a.engineBusy || a.lines.isEmpty() || !settings.analysisAi) return
+        val cfg = store.config(settings.provider)
+        if (!cfg.ready) { go(Screen.AI_SETTINGS); return }
+        val pos = game.position
+        val movetext = game.movetext()
+        val lastSan = ui.sans.lastOrNull()
+        val ply = a.ply
+        analysis = a.copy(aiBusy = true, aiError = null)
+        viewModelScope.launch {
+            try {
+                val text = AiClient.explain(cfg, pos, movetext, a.lines, lastSan, aiAnswerLanguage())
+                if (analysis?.ply == ply) analysis = analysis?.copy(aiText = text, aiBusy = false)
+            } catch (e: AiException) {
+                if (analysis?.ply == ply) analysis = analysis?.copy(aiBusy = false, aiError = e.message ?: "Lỗi không rõ")
+            }
+        }
+    }
+
+    /** Tên tiếng Anh của ngôn ngữ mà AI cần trả lời. */
+    private fun aiAnswerLanguage(): String = "Vietnamese"
 
     // ------------------------------------------------------------------ AI (engine nội bộ hoặc API)
     private fun maybeAiMove() {

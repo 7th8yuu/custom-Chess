@@ -63,6 +63,10 @@ data class Settings(
     val keepScreenOn: Boolean = true,
     val allowTakeback: Boolean = true,
     val evalBar: Boolean = false,
+    /** Nút Phân tích trong ván (engine chấm các nước tốt nhất). Chỉ hiện khi chơi với máy/bot/AI/cùng máy, hoặc khi ván đã kết thúc. */
+    val analysis: Boolean = true,
+    /** Cho AI (Gemini mặc định) giải thích bằng lời trong phần Phân tích. */
+    val analysisAi: Boolean = true,
 
     // ---- câu đố
     val puzzleHints: Boolean = true,
@@ -147,6 +151,8 @@ class Store(context: Context) {
             keepScreenOn = b("s.awake", d.keepScreenOn),
             allowTakeback = b("s.takeback", d.allowTakeback),
             evalBar = b("s.evalbar", d.evalBar),
+            analysis = b("s.analysis", d.analysis),
+            analysisAi = b("s.analysisai", d.analysisAi),
             puzzleHints = b("s.phints", d.puzzleHints),
             puzzleAutoNext = b("s.pnext", d.puzzleAutoNext),
             homeDaily = b("s.hdaily", d.homeDaily),
@@ -190,6 +196,8 @@ class Store(context: Context) {
             .putBoolean("s.awake", s.keepScreenOn)
             .putBoolean("s.takeback", s.allowTakeback)
             .putBoolean("s.evalbar", s.evalBar)
+            .putBoolean("s.analysis", s.analysis)
+            .putBoolean("s.analysisai", s.analysisAi)
             .putBoolean("s.phints", s.puzzleHints)
             .putBoolean("s.pnext", s.puzzleAutoNext)
             .putBoolean("s.hdaily", s.homeDaily)

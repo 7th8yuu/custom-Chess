@@ -203,6 +203,8 @@ fun SettingsScreen(vm: AppViewModel) {
                 SettingSwitch("Tự phong Hậu", "Không hỏi khi tốt tới hàng cuối", s.autoQueen) { set { copy(autoQueen = it) } }
                 SettingSwitch("Cho phép đi lại", "Nút Đi lại trong ván với máy, bot và AI", s.allowTakeback) { set { copy(allowTakeback = it) } }
                 SettingSwitch("Thanh đánh giá thế cờ", "Engine chấm điểm thế cờ khi đang chơi (tốn pin hơn)", s.evalBar) { set { copy(evalBar = it) } }
+                SettingSwitch("Phân tích nước cờ trong ván", "Nút Phân tích: engine chỉ ra các nước tốt nhất. Chỉ hiện khi chơi với máy, bot, AI hoặc cùng một máy, còn ván online và với bạn bè thì sau khi kết thúc", s.analysis) { set { copy(analysis = it) } }
+                SettingSwitch("AI giải thích khi phân tích", "Gửi thế cờ cho AI (Gemini mặc định) để giải thích bằng lời. Cần API key, tắt thì chỉ dùng engine offline", s.analysisAi, enabled = s.analysis) { set { copy(analysisAi = it) } }
                 SettingSwitch("Giữ màn hình sáng", "Khi đang chơi, giải câu đố hoặc xem lại ván", s.keepScreenOn) { set { copy(keepScreenOn = it) } }
             }
 

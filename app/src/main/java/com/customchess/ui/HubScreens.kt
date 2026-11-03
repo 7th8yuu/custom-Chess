@@ -336,7 +336,7 @@ fun PlayScreen(vm: AppViewModel) {
             ActionRow(Icons.Rounded.EmojiEvents, "Giải đấu", "Arena đang diễn ra và sắp diễn ra", { vm.go(Screen.TOURNAMENTS) }, tint = Pal.Tertiary)
             Spacer(Modifier.height(10.dp))
             ActionRow(
-                Icons.Rounded.AutoAwesome, "Chơi với AI", "Gemini, OpenAI hoặc Claude bằng key của bạn",
+                Icons.Rounded.AutoAwesome, "Chơi với AI", "Gemini bằng key của bạn (OpenAI, Claude tùy chọn)",
                 { vm.go(Screen.API_SETUP) }, tint = Pal.Secondary,
             )
             Spacer(Modifier.height(10.dp))

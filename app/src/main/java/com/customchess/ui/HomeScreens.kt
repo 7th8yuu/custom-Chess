@@ -164,21 +164,24 @@ fun ApiSetupScreen(vm: AppViewModel) {
     var color by remember { mutableIntStateOf(2) }
     val provider = vm.settings.provider
     val ready = vm.hasKey(provider)
+    var optionalOpen by remember { mutableStateOf(provider.isOptional) }
     Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp)) {
         ScreenHeader("Chơi với AI qua API", vm::back)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            Text2("Chọn một trong ba hãng và dùng API key của chính bạn. Key chỉ lưu trên máy này.", Type.Small)
+            Text2("Gemini là AI chính của ứng dụng. OpenAI và Claude là tùy chọn nếu bạn đã có key. Key chỉ lưu trên máy này.", Type.Small)
             SectionTitle("Hãng AI")
-            for (p in com.customchess.ai.Provider.values()) {
-                val slot = vm.slot(p)
-                ChoiceRow(
-                    title = p.label,
-                    subtitle = slot.model.ifEmpty { p.defaultModel },
-                    selected = provider == p,
-                    onClick = { vm.selectProvider(p) },
-                    trailing = if (vm.hasKey(p)) "Đã có key" else "Chưa có key",
-                )
+            ProviderRow(vm, com.customchess.ai.Provider.MAIN, provider)
+            Spacer(Modifier.height(8.dp))
+            GhostButton(
+                if (optionalOpen) "Ẩn tùy chọn (OpenAI, Claude)" else "Tùy chọn: OpenAI, Claude",
+                { optionalOpen = !optionalOpen }, Modifier.fillMaxWidth(),
+            )
+            if (optionalOpen) {
                 Spacer(Modifier.height(8.dp))
+                for (p in com.customchess.ai.Provider.OPTIONAL) {
+                    ProviderRow(vm, p, provider)
+                    Spacer(Modifier.height(8.dp))
+                }
             }
             SectionTitle("Bạn cầm quân")
             ColorPills(color) { color = it }
@@ -192,6 +195,18 @@ fun ApiSetupScreen(vm: AppViewModel) {
             Modifier.padding(vertical = 16.dp),
         )
     }
+}
+
+@Composable
+private fun ProviderRow(vm: AppViewModel, p: com.customchess.ai.Provider, selected: com.customchess.ai.Provider) {
+    val slot = vm.slot(p)
+    ChoiceRow(
+        title = p.label,
+        subtitle = slot.model.ifEmpty { p.defaultModel },
+        selected = selected == p,
+        onClick = { vm.selectProvider(p) },
+        trailing = if (vm.hasKey(p)) "Đã có key" else "Chưa có key",
+    )
 }
 
 /** Text dùng style của ứng dụng, viết gọn. */
