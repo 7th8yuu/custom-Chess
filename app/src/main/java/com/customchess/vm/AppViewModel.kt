@@ -256,7 +256,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     val lastBackupText: String
         get() = if (lastBackup <= 0L) "" else "Lần sao lưu gần nhất: " +
-            java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastBackup))
+            java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", com.customchess.ui.Lang.locale).format(java.util.Date(lastBackup))
 
     private fun maybeAutoBackup() {
         if (settings.autoBackup && user?.isMember == true) startDrive(DriveOp.BACKUP, silent = true)
@@ -400,6 +400,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     init {
         stack.add(if (user == null) Screen.LOGIN else Screen.HOME)
         applySound(settings)
+        com.customchess.ui.Lang.apply(app, settings.language)
     }
 
     fun go(s: Screen) {
@@ -513,6 +514,26 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         settings = s
         store.saveSettings(s)
         applySound(s)
+        com.customchess.ui.Lang.apply(app, s.language)
+    }
+
+    // ------------------------------------------------------------------ ngôn ngữ
+    fun setLanguage(code: String) = updateSettings(settings.copy(language = code))
+
+    /** Nhập file ngôn ngữ người dùng tự dịch; thành công thì dùng ngay nếu đang chọn đúng ngôn ngữ đó. */
+    fun importLanguage(text: String): com.customchess.ui.Lang.ImportResult {
+        val r = com.customchess.ui.Lang.importText(app, text)
+        if (r.ok) {
+            updateSettings(settings.copy(language = r.code))
+            com.customchess.ui.Lang.apply(app, r.code, force = true)
+        }
+        return r
+    }
+
+    fun deleteLanguage(code: String) {
+        com.customchess.ui.Lang.delete(app, code)
+        if (settings.language == code) setLanguage(com.customchess.ui.Lang.AUTO)
+        else com.customchess.ui.Lang.apply(app, settings.language, force = true)
     }
 
     private fun applySound(s: Settings) {
@@ -1087,7 +1108,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** Tên tiếng Anh của ngôn ngữ mà AI cần trả lời. */
-    private fun aiAnswerLanguage(): String = "Vietnamese"
+    private fun aiAnswerLanguage(): String = com.customchess.ui.Lang.english
 
     // ------------------------------------------------------------------ AI (engine nội bộ hoặc API)
     private fun maybeAiMove() {

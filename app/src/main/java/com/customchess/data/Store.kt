@@ -23,6 +23,8 @@ data class Settings(
     val fallbackToEngine: Boolean = true,
     val engineLevel: Int = 3,
     val provider: Provider = Provider.GEMINI,
+    /** Ngôn ngữ giao diện: "auto" (theo hệ thống) hoặc mã như vi, en, zh, es... (cả ngôn ngữ người dùng tự nhập). */
+    val language: String = "auto",
 
     // ---- giao diện
     /** Mã bàn cờ: có sẵn (lacquer, sky...) hoặc "c:<id>" cho bàn cờ ảnh tự thêm. */
@@ -151,6 +153,7 @@ class Store(context: Context) {
             keepScreenOn = b("s.awake", d.keepScreenOn),
             allowTakeback = b("s.takeback", d.allowTakeback),
             evalBar = b("s.evalbar", d.evalBar),
+            language = sp.getString("s.lang", d.language) ?: d.language,
             analysis = b("s.analysis", d.analysis),
             analysisAi = b("s.analysisai", d.analysisAi),
             puzzleHints = b("s.phints", d.puzzleHints),
@@ -196,6 +199,7 @@ class Store(context: Context) {
             .putBoolean("s.awake", s.keepScreenOn)
             .putBoolean("s.takeback", s.allowTakeback)
             .putBoolean("s.evalbar", s.evalBar)
+            .putString("s.lang", s.language)
             .putBoolean("s.analysis", s.analysis)
             .putBoolean("s.analysisai", s.analysisAi)
             .putBoolean("s.phints", s.puzzleHints)

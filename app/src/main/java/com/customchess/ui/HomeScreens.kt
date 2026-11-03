@@ -212,5 +212,5 @@ private fun ProviderRow(vm: AppViewModel, p: com.customchess.ai.Provider, select
 /** Text dùng style của ứng dụng, viết gọn. */
 @Composable
 fun Text2(text: String, style: androidx.compose.ui.text.TextStyle, modifier: Modifier = Modifier) {
-    androidx.compose.material3.Text(text, style = style, modifier = modifier)
+    Text(text, style = style, modifier = modifier)
 }

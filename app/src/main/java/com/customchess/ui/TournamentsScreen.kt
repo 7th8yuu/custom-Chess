@@ -16,7 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.EmojiEvents
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,7 +83,7 @@ fun TournamentsScreen(vm: AppViewModel) {
 @Composable
 private fun TournamentRow(t: Tournament, onClick: () -> Unit) {
     val live = t.status == 20
-    val time = SimpleDateFormat("HH:mm dd/MM", Locale.getDefault()).format(Date(t.startsAt))
+    val time = SimpleDateFormat("HH:mm dd/MM", Lang.locale).format(Date(t.startsAt))
     GlassBox(Modifier.fillMaxWidth(), RoundedCornerShape(24.dp), onClick = onClick, tint = if (live) Pal.Jade else androidx.compose.ui.graphics.Color.Unspecified) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             IconBadge(Icons.Rounded.EmojiEvents, tint = if (live) Pal.Jade else Pal.Gold, size = 48.dp)

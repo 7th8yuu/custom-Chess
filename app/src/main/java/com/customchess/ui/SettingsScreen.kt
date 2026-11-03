@@ -20,7 +20,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -147,6 +146,8 @@ fun SettingsScreen(vm: AppViewModel) {
 
             Spacer(Modifier.height(8.dp))
             GhostButton("Giao diện: bàn cờ, ảnh nền, bộ quân, màu sắc", { vm.go(Screen.APPEARANCE) }, Modifier.fillMaxWidth())
+
+            LanguageGroup(vm)
 
             // ---------------------------------------------------------------- hiệu ứng
             Group("Hiệu ứng và hiệu năng") {
@@ -300,7 +301,7 @@ fun SettingsScreen(vm: AppViewModel) {
                 TextButton(onClick = {
                     confirmReset = false
                     val c = vm.settings
-                    vm.updateSettings(Settings(playerName = c.playerName, provider = c.provider, boardId = c.boardId, pieceId = c.pieceId, engineLevel = c.engineLevel))
+                    vm.updateSettings(Settings(playerName = c.playerName, provider = c.provider, language = c.language, boardId = c.boardId, pieceId = c.pieceId, engineLevel = c.engineLevel))
                 }) { Text("Đặt lại", style = Type.Button.copy(color = Pal.Alert)) }
             },
             dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Hủy", style = Type.Button.copy(color = Pal.EggDim)) } },

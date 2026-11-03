@@ -29,7 +29,6 @@ import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,7 +57,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private fun dateText(ms: Long): String = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(ms))
+private fun dateText(ms: Long): String = SimpleDateFormat("dd/MM HH:mm", Lang.locale).format(Date(ms))
 
 private fun classColor(c: MoveClass): Color = when (c) {
     MoveClass.BEST -> Color(0xFF4CAF7D)
