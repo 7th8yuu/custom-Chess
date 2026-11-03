@@ -69,6 +69,7 @@ def main():
     keys = {}
     for f in sorted(glob.glob(os.path.join(root, '**', '*.kt'), recursive=True)):
         rel = os.path.relpath(f, root)
+        if rel.endswith('core/Translator.kt'): continue  # bảng chữ cái tiếng Việt của bộ dịch, không phải câu hiển thị
         src = open(f, encoding='utf-8').read()
         lits = scan_literals(src)
         # chuỗi ghép bằng '+' (nối nhiều chuỗi ở nhiều dòng) -> thêm cả khóa ghép

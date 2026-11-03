@@ -134,7 +134,7 @@ object Lang {
             if (Translator.placeholders(k).sorted() != Translator.placeholders(v).sorted()) bad++
         }
         if (used == 0) return ImportResult(false, "File không có câu nào để dịch")
-        if (bad > 0) return ImportResult(false, "$bad câu làm mất hoặc thêm chỗ chèn {0}, {1}... so với câu gốc. Hãy sửa rồi nhập lại")
+        if (bad > 0) return ImportResult(false, "$bad câu làm mất hoặc thêm chỗ chèn dạng {số} so với câu gốc. Hãy sửa rồi nhập lại")
         val dir = customDir(ctx)
         dir.mkdirs()
         File(dir, "${info.code}.json").writeText(text)

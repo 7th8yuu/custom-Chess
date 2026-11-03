@@ -19,7 +19,7 @@ import kotlin.math.max
 
 enum class MoveClass(val label: String, val mark: String) {
     BEST("Nước tốt nhất", "★"),
-    GOOD("Tốt", ""),
+    GOOD("Nước tốt", ""),
     INACCURACY("Thiếu chính xác", "?!"),
     MISTAKE("Sai lầm", "?"),
     BLUNDER("Sai lầm nghiêm trọng", "??"),
