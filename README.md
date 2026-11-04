@@ -83,5 +83,5 @@ app/src/main/java/com/customchess/
   vm/     ViewModel điều phối ván cờ, đồng hồ, kết nối
   ui/     giao diện Compose
 ```
-
+## prompt để tạo quân cờ ở file prompt.md
 Chạy test: `./gradlew testDebugUnitTest`.
