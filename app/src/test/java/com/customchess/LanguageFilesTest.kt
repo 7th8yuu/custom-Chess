@@ -9,7 +9,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * Kiểm tra các file ngôn ngữ dựng sẵn (app/src/main/assets/i18n/*.json): đủ câu như bản tiếng Anh gốc,
+ * Kiểm tra các file ngôn ngữ dựng sẵn (thư mục app/src/main/assets/i18n, các file .json): đủ câu như bản tiếng Anh gốc,
  * không câu nào rỗng, giữ đúng các chỗ chèn {0}, {1}..., có _meta hợp lệ, và Translator dịch được câu mẫu.
  * Khi thêm câu tiếng Việt mới vào mã, chạy tools/i18n/check.py để biết câu nào còn thiếu bản dịch.
  */
