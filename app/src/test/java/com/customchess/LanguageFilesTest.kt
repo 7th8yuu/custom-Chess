@@ -62,10 +62,11 @@ class LanguageFilesTest {
             val t = Translator(map)
             // một câu cố định, một câu có chỗ chèn và một câu ghép
             val white = t.translate("Đến lượt Trắng")
-            assertFalse("$code: Đến lượt Trắng chưa được dịch", Translator.hasVietnamese(white) && code != "vi")
+            assertTrue("$code: Đến lượt Trắng chưa được dịch", white != "Đến lượt Trắng" && white.isNotBlank())
             val learned = t.translate("Bạn đã chơi liên tiếp 5 ngày.")
             assertTrue("$code: câu có số phải giữ số 5", learned.contains("5"))
-            assertFalse("$code: câu có số chưa dịch", Translator.hasVietnamese(learned))
+            // (không dùng hasVietnamese: tiếng Tây Ban Nha, Pháp... cũng có chữ như í, é)
+            assertFalse("$code: câu có số chưa dịch", learned.contains("ngày") || learned.contains("chơi"))
         }
     }
 }
