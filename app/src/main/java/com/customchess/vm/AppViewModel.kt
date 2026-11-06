@@ -29,6 +29,7 @@ import com.customchess.core.Game
 import com.customchess.core.GameResult
 import com.customchess.core.Move
 import com.customchess.core.Pc
+import com.customchess.core.Pgn
 import com.customchess.core.Reason
 import com.customchess.core.START_FEN
 import com.customchess.core.rankOf
@@ -105,6 +106,28 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun openReview(g: SavedGame) {
         review = ReviewState(g)
         go(Screen.REVIEW)
+    }
+
+    /**
+     * Nhập một ván từ văn bản PGN (chess.com, Lichess...): lưu vào lịch sử với nhãn "PGN" rồi mở màn xem lại.
+     * [myWhite] là màu của người dùng trong ván đó (null = không rõ). Trả về null nếu thành công, hoặc thông báo lỗi.
+     */
+    fun importPgn(text: String, myWhite: Boolean?): String? {
+        val r = Pgn.parse(text)
+        val g = r.game ?: return r.error ?: "Không đọc được PGN."
+        if (g.moves.size < 2) return "Ván quá ngắn: cần ít nhất 2 nước đi."
+        val sg = SavedGame(
+            id = java.util.UUID.randomUUID().toString().take(8), time = System.currentTimeMillis(),
+            mode = "PGN", white = g.white, black = g.black, whiteSub = g.whiteElo, blackSub = g.blackElo,
+            myWhite = myWhite, winnerWhite = g.winnerWhite, reason = Pgn.reasonOf(g).name,
+            startFen = g.startFen, moves = g.moves,
+        )
+        history.add(0, sg)
+        while (history.size > HistoryStore.MAX) history.removeAt(history.size - 1)
+        val snapshot = history.toList()
+        io { historyStore.save(snapshot) }
+        openReview(sg)
+        return null
     }
 
     fun deleteGame(id: String) {
