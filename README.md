@@ -32,6 +32,27 @@
 
 Chess.com chỉ có API đọc dữ liệu công khai (hồ sơ, ván đã chơi), **không cho ứng dụng ngoài đi quân hay ghép trận**. Vì vậy phần đấu online dùng Lichess, nơi cho phép ứng dụng bên thứ ba chơi miễn phí.
 
+## Vẽ trên bàn cờ
+
+Trong ván và khi xem lại ván, giữ ngón tay trên một ô rồi kéo sang ô khác để vẽ mũi tên, giữ yên một ô để tô màu (vẽ lại đúng nét đó thì xóa,
+vẽ cùng nét khác màu thì đổi màu). Dưới bàn cờ có nút Vẽ (kéo là vẽ luôn, không cần giữ, và không đi quân được trong lúc bật), bốn màu và nút Xóa.
+Nét vẽ tự xóa khi có nước mới hoặc khi chạm thường vào bàn cờ, giống chess.com. Bật/tắt tính năng ở Cài đặt, mục Ván cờ.
+
+Kiểu nét vẽ chỉnh bằng JSON ở Giao diện, mục Nét vẽ trên bàn cờ (dán JSON, tải từ link, xem mẫu, đặt lại). Mọi trường đều tùy chọn:
+
+```json
+{
+  "name": "Kiểu của tôi",
+  "colors": ["#2FB36D", "#E5484D", "#3B82F6", "#F2B63D"],
+  "arrowOpacity": 0.85,
+  "arrowWidth": 0.17,
+  "squareOpacity": 0.55,
+  "squareStyle": "fill"
+}
+```
+
+`colors` có 1 đến 6 màu (#RGB, #RRGGBB hoặc #AARRGGBB), `squareStyle` là `fill` (tô kín ô) hoặc `ring` (vòng tròn).
+
 ## Xem lại và phân tích ván
 
 Vào Lịch sử ván, chạm một ván để xem lại. Engine nội bộ chấm từng nước (chạy ngay trên máy, không cần mạng, không tốn phí):

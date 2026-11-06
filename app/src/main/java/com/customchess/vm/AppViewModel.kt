@@ -37,6 +37,7 @@ import com.customchess.data.ApiSlot
 import com.customchess.data.Bot
 import com.customchess.data.CustomBoard
 import com.customchess.data.CustomException
+import com.customchess.data.MarkStyle
 import com.customchess.data.CustomPieces
 import com.customchess.data.Customs
 import com.customchess.data.DriveAuth
@@ -262,6 +263,43 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun addPiecesFromUrl(url: String, name: String) = customTask("Đã tải và áp dụng bộ quân mới") {
         importPiecesBytes(customs.download(url, 12 * 1024 * 1024), name)
+    }
+
+    // ------------------------------------------------------------------ kiểu nét vẽ
+    /** Áp dụng kiểu nét vẽ từ JSON dán vào; báo kết quả qua [customMsg]. */
+    fun setMarkStyleFromText(text: String) {
+        try {
+            val st = MarkStyle.parse(text)
+            updateSettings(settings.copy(markStyle = st.toJson()))
+            customMsgError = false
+            customMsg = "Đã áp dụng kiểu nét vẽ \"${st.name}\""
+        } catch (e: CustomException) {
+            customMsgError = true
+            customMsg = e.message
+        }
+    }
+
+    fun setMarkStyleFromUrl(url: String) {
+        if (customBusy) return
+        customBusy = true
+        customMsg = null
+        viewModelScope.launch {
+            try {
+                val text = withContext(Dispatchers.IO) { String(customs.download(url, 256 * 1024), Charsets.UTF_8) }
+                setMarkStyleFromText(text)
+            } catch (e: CustomException) {
+                customMsgError = true
+                customMsg = e.message
+            } finally {
+                customBusy = false
+            }
+        }
+    }
+
+    fun resetMarkStyle() {
+        updateSettings(settings.copy(markStyle = ""))
+        customMsgError = false
+        customMsg = "Đã đặt lại kiểu nét vẽ mặc định"
     }
 
     // ------------------------------------------------------------------ sao lưu Google Drive

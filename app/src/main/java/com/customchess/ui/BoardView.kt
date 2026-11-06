@@ -5,6 +5,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.runtime.Composable
@@ -65,13 +66,17 @@ fun ChessBoard(
     arrow: Move? = null,
     /** Ô cần nhấp nháy (gợi ý câu đố). */
     hintSquare: Int = -1,
+    /** Nét vẽ của người dùng (mũi tên, ô tô màu); null = không cho vẽ. */
+    marks: BoardMarks? = null,
 ) {
+    val gestureMarks = marks?.takeIf { !it.readOnly }
     val measurer = rememberTextMeasurer()
     val photo = rememberBoardPhoto(theme)
     val anim = remember { Animatable(1f) }
     val pop = remember { Animatable(1f) }
     var prevPly by remember { mutableIntStateOf(plyCount) }
     LaunchedEffect(plyCount) {
+        gestureMarks?.clear() // đi nước mới (hoặc tua ván) thì xóa nét vẽ, như chess.com
         if (plyCount > prevPly && Fx.slide) {
             anim.snapTo(0f)
             anim.animateTo(1f, tween(Fx.slideMs, easing = FastOutSlowInEasing))
@@ -103,18 +108,28 @@ fun ChessBoard(
 
     val coordStyle = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
 
+    val drawing = gestureMarks?.drawMode == true
     Canvas(
         modifier
             .aspectRatio(1f)
-            .pointerInput(flipped, interactive) {
-                if (!interactive) return@pointerInput
+            .pointerInput(flipped, interactive, gestureMarks, drawing) {
+                if (!interactive && gestureMarks == null) return@pointerInput // bàn cờ chỉ để xem: không chặn cử chỉ của thẻ chứa nó
+                if (drawing) {
+                    // chế độ vẽ: chạm một ô để tô màu
+                    detectTapGestures { off ->
+                        val sq = squareAt(off, size.width.toFloat())
+                        if (sq >= 0) gestureMarks?.square(sq)
+                    }
+                    return@pointerInput
+                }
                 detectTapGestures { off ->
+                    gestureMarks?.clear() // chạm thường thì xóa nét vẽ
                     val sq = squareAt(off, size.width.toFloat())
-                    if (sq >= 0) onSquareState(sq)
+                    if (interactive && sq >= 0) onSquareState(sq)
                 }
             }
-            .pointerInput(flipped, interactive) {
-                if (!interactive) return@pointerInput
+            .pointerInput(flipped, interactive, drawing) {
+                if (!interactive || drawing) return@pointerInput
                 detectDragGestures(
                     onDragStart = { off ->
                         val sq = squareAt(off, size.width.toFloat())
@@ -139,6 +154,27 @@ fun ChessBoard(
                         }
                     },
                 )
+            }
+            // vẽ mũi tên: ở chế độ vẽ thì kéo là vẽ, còn không thì giữ ngón tay rồi kéo (đặt cuối để nhận cử chỉ trước)
+            .pointerInput(flipped, gestureMarks, drawing) {
+                val mk = gestureMarks ?: return@pointerInput
+                var pos = Offset.Zero
+                val onStart: (Offset) -> Unit = { off ->
+                    pos = off
+                    val sq = squareAt(off, size.width.toFloat())
+                    mk.dragFrom = sq
+                    mk.dragTo = sq
+                }
+                val onMove: (androidx.compose.ui.input.pointer.PointerInputChange, Offset) -> Unit = { change, delta ->
+                    change.consume()
+                    pos += delta
+                    if (mk.dragFrom >= 0) mk.dragTo = squareAt(pos, size.width.toFloat())
+                }
+                if (drawing) {
+                    detectDragGestures(onDragStart = onStart, onDrag = onMove, onDragEnd = { mk.endDrag() }, onDragCancel = { mk.cancelDrag() })
+                } else {
+                    detectDragGesturesAfterLongPress(onDragStart = onStart, onDrag = onMove, onDragEnd = { mk.endDrag() }, onDragCancel = { mk.cancelDrag() })
+                }
             },
     ) {
         val w = size.width
@@ -203,6 +239,21 @@ fun ChessBoard(
                 ),
                 o, Size(cell, cell),
             )
+        }
+
+        // ô người dùng tô màu (nằm dưới quân cờ)
+        if (marks != null) {
+            val st = marks.style
+            fun markSquare(sq: Int, col: Color) {
+                if (st.squareRing) {
+                    val ring = cell * 0.07f
+                    drawCircle(col, radius = cell / 2 - ring / 2, center = origin(sq) + Offset(cell / 2, cell / 2), style = Stroke(ring))
+                } else {
+                    drawRect(col, origin(sq), Size(cell, cell))
+                }
+            }
+            for (s in marks.squares) markSquare(s.sq, marks.colorOf(s.color).copy(alpha = st.squareOpacity))
+            if (marks.dragFrom >= 0 && marks.dragFrom == marks.dragTo) markSquare(marks.dragFrom, marks.colorOf(marks.color).copy(alpha = st.squareOpacity * 0.7f))
         }
 
         // tọa độ (màu chữ lấy bản đặc của màu ô đối diện để luôn đọc được, kể cả khi màu ô là lớp phủ mờ)
@@ -279,10 +330,10 @@ fun ChessBoard(
             drawCircle(theme.highlight.copy(alpha = a.coerceIn(0.2f, 1f)), cell * 0.5f, c, style = Stroke(width = cell * 0.09f))
         }
 
-        // mũi tên nước đi
-        if (arrow != null) {
-            val a = origin(arrow.from) + Offset(cell / 2, cell / 2)
-            val b = origin(arrow.to) + Offset(cell / 2, cell / 2)
+        // mũi tên: nước gợi ý của engine rồi các mũi tên người dùng vẽ (và nét đang kéo dở)
+        fun drawArrow(fromSq: Int, toSq: Int, col: Color, widthK: Float = 0.17f) {
+            val a = origin(fromSq) + Offset(cell / 2, cell / 2)
+            val b = origin(toSq) + Offset(cell / 2, cell / 2)
             val dx = b.x - a.x
             val dy = b.y - a.y
             val len = kotlin.math.sqrt(dx * dx + dy * dy)
@@ -292,8 +343,7 @@ fun ChessBoard(
                 val head = cell * 0.42f
                 val tail = a + Offset(ux * cell * 0.2f, uy * cell * 0.2f)
                 val neck = b - Offset(ux * head * 0.8f, uy * head * 0.8f)
-                val col = Pal.Tertiary.copy(alpha = 0.82f)
-                drawLine(col, tail, neck, strokeWidth = cell * 0.17f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                drawLine(col, tail, neck, strokeWidth = cell * widthK, cap = androidx.compose.ui.graphics.StrokeCap.Round)
                 val px = -uy
                 val py = ux
                 val tip = b - Offset(ux * cell * 0.08f, uy * cell * 0.08f)
@@ -304,6 +354,14 @@ fun ChessBoard(
                     close()
                 }
                 drawPath(path, col)
+            }
+        }
+        if (arrow != null) drawArrow(arrow.from, arrow.to, Pal.Tertiary.copy(alpha = 0.82f))
+        if (marks != null) {
+            val st = marks.style
+            for (a in marks.arrows) drawArrow(a.from, a.to, marks.colorOf(a.color).copy(alpha = st.arrowOpacity), st.arrowWidth)
+            if (marks.dragFrom >= 0 && marks.dragTo >= 0 && marks.dragFrom != marks.dragTo) {
+                drawArrow(marks.dragFrom, marks.dragTo, marks.colorOf(marks.color).copy(alpha = st.arrowOpacity * 0.65f), st.arrowWidth)
             }
         }
 

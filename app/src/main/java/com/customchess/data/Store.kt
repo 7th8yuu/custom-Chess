@@ -69,6 +69,10 @@ data class Settings(
     val analysis: Boolean = true,
     /** Cho AI (Gemini mặc định) giải thích bằng lời trong phần Phân tích. */
     val analysisAi: Boolean = true,
+    /** Vẽ mũi tên và tô ô trên bàn cờ (giữ rồi kéo, hoặc nút Vẽ) trong ván và khi xem lại. */
+    val drawing: Boolean = true,
+    /** Kiểu nét vẽ dạng JSON (xem [MarkStyle]); rỗng = mặc định. */
+    val markStyle: String = "",
 
     // ---- câu đố
     val puzzleHints: Boolean = true,
@@ -156,6 +160,8 @@ class Store(context: Context) {
             language = sp.getString("s.lang", d.language) ?: d.language,
             analysis = b("s.analysis", d.analysis),
             analysisAi = b("s.analysisai", d.analysisAi),
+            drawing = b("s.draw", d.drawing),
+            markStyle = sp.getString("s.markstyle", d.markStyle) ?: d.markStyle,
             puzzleHints = b("s.phints", d.puzzleHints),
             puzzleAutoNext = b("s.pnext", d.puzzleAutoNext),
             homeDaily = b("s.hdaily", d.homeDaily),
@@ -202,6 +208,8 @@ class Store(context: Context) {
             .putString("s.lang", s.language)
             .putBoolean("s.analysis", s.analysis)
             .putBoolean("s.analysisai", s.analysisAi)
+            .putBoolean("s.draw", s.drawing)
+            .putString("s.markstyle", s.markStyle)
             .putBoolean("s.phints", s.puzzleHints)
             .putBoolean("s.pnext", s.puzzleAutoNext)
             .putBoolean("s.hdaily", s.homeDaily)

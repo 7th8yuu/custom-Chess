@@ -27,6 +27,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import com.customchess.core.GameResult
 import com.customchess.core.Pc
 import com.customchess.core.Reason
+import com.customchess.data.MarkStyle
 import com.customchess.vm.AppViewModel
 import com.customchess.vm.Mode
 import kotlinx.coroutines.delay
@@ -223,6 +225,9 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
     var leaveAsk by remember { mutableStateOf(false) }
     var resultDismissed by remember(ui.result) { mutableStateOf(false) }
     var resignAsk by remember { mutableStateOf(false) }
+    val marks = remember { BoardMarks() }
+    val markStyle = remember(vm.settings.markStyle) { MarkStyle.parseOrDefault(vm.settings.markStyle) }
+    SideEffect { marks.style = markStyle }
 
     BackHandler {
         if (ui.result == null && ui.plyCount > 0 && !ui.disconnected) leaveAsk = true else vm.leaveGame()
@@ -270,6 +275,7 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
             capture = ui.lastCapture,
             highlightLast = vm.settings.highlightLast,
             arrow = vm.analysis?.lines?.firstOrNull()?.move,
+            marks = if (vm.settings.drawing) marks else null,
         )
         Spacer(Modifier.height(4.dp))
         PlayerSide(vm, !topWhite)
@@ -300,6 +306,10 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
             ControlButton("Đi lại", vm::undo, Modifier.weight(1f), enabled = ui.canUndo)
             ControlButton("Xin hòa", vm::offerDraw, Modifier.weight(1f), enabled = !gameOver && !ui.disconnected && !ui.drawSent && ui.plyCount > 0)
             ControlButton("Đầu hàng", { resignAsk = true }, Modifier.weight(1f), enabled = !gameOver && !ui.disconnected, danger = true)
+        }
+        if (vm.settings.drawing) {
+            Spacer(Modifier.height(8.dp))
+            DrawBar(marks)
         }
         if (vm.analysisAllowed()) {
             Spacer(Modifier.height(8.dp))

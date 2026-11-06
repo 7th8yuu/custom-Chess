@@ -35,6 +35,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,10 +57,13 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.customchess.core.MarkArrow
+import com.customchess.core.MarkSquare
 import com.customchess.core.Move
 import com.customchess.core.Pc
 import com.customchess.core.Position
 import com.customchess.core.squareFromName
+import com.customchess.data.MarkStyle
 import com.customchess.vm.AppViewModel
 
 private const val PREVIEW_FEN = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 4 5"
@@ -81,6 +85,25 @@ fun AppearanceScreen(vm: AppViewModel, theme: BoardTheme) {
     var pasteOpen by remember { mutableStateOf(false) }
     var templateOpen by remember { mutableStateOf(false) }
     var pasteText by remember { mutableStateOf("") }
+    var markUrl by remember { mutableStateOf("") }
+    var markPasteOpen by remember { mutableStateOf(false) }
+    var markTemplateOpen by remember { mutableStateOf(false) }
+    var markPasteText by remember { mutableStateOf("") }
+    val markStyle = remember(s.markStyle) { MarkStyle.parseOrDefault(s.markStyle) }
+    val demoMarks = remember {
+        BoardMarks().apply {
+            readOnly = true
+            preset(
+                arrows = listOf(
+                    MarkArrow(squareFromName("f3"), squareFromName("e5"), 0),
+                    MarkArrow(squareFromName("c4"), squareFromName("f7"), 1),
+                    MarkArrow(squareFromName("f1"), squareFromName("c4"), 2),
+                ),
+                squares = listOf(MarkSquare(squareFromName("d4"), 3), MarkSquare(squareFromName("g5"), 0)),
+            )
+        }
+    }
+    SideEffect { demoMarks.style = markStyle }
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.addBoardFromUri(uri, "Ảnh ${vm.customBoards.size + 1}")
@@ -223,6 +246,39 @@ fun AppearanceScreen(vm: AppViewModel, theme: BoardTheme) {
                 Text(it, style = Type.Small.copy(color = if (vm.customMsgError) Pal.Alert else Pal.Jade), modifier = Modifier.padding(top = 10.dp))
             }
 
+            // ---------------------------------------------------------------- nét vẽ
+            SectionTitle("Nét vẽ trên bàn cờ")
+            GlassCard(padding = 14.dp) {
+                Text("Kiểu mũi tên và ô tô màu khi bạn vẽ trên bàn cờ: ${markStyle.name}", style = Type.Heading)
+                Text(
+                    "Chỉnh màu, độ đậm, độ dày mũi tên và kiểu ô tô (đặc hoặc vòng) bằng JSON. Tắt hẳn tính năng vẽ ở Cài đặt, mục Ván cờ.",
+                    style = Type.Small,
+                )
+                Spacer(Modifier.height(10.dp))
+                ChessBoard(
+                    board = position.board, flipped = false, lastMove = null, checkSquare = -1,
+                    selected = -1, targets = emptySet(), plyCount = 0, theme = theme,
+                    modifier = Modifier.fillMaxWidth(0.72f).align(Alignment.CenterHorizontally), interactive = false,
+                    highlightLast = false, marks = demoMarks,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GhostButton("Dán JSON", { markPasteOpen = true }, Modifier.weight(1f))
+                    GhostButton("Xem mẫu JSON", { markTemplateOpen = true }, Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = markUrl, onValueChange = { markUrl = it.trim() }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(), colors = fieldColors(),
+                    label = { Text("Link tới tệp JSON kiểu nét vẽ") },
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GhostButton("Tải từ link", { vm.setMarkStyleFromUrl(markUrl); markUrl = "" }, Modifier.weight(1f), enabled = markUrl.startsWith("http") && !vm.customBusy)
+                    GhostButton("Đặt lại mặc định", { vm.resetMarkStyle() }, Modifier.weight(1f), enabled = s.markStyle.isNotEmpty())
+                }
+            }
+
             SectionTitle("Hiển thị")
             SettingSwitch("Tọa độ trên bàn cờ", "Chữ a-h và số 1-8 ở mép bàn cờ", s.showCoords) {
                 vm.updateSettings(s.copy(showCoords = it))
@@ -250,6 +306,54 @@ fun AppearanceScreen(vm: AppViewModel, theme: BoardTheme) {
                 }
             },
             dismissButton = { TextButton(onClick = { pasteOpen = false }) { Text("Hủy", style = Type.Button.copy(color = Pal.EggDim)) } },
+        )
+    }
+    if (markPasteOpen) {
+        AlertDialog(
+            onDismissRequest = { markPasteOpen = false },
+            containerColor = Pal.Panel,
+            title = { Text("Dán JSON kiểu nét vẽ", style = Type.Title) },
+            text = {
+                OutlinedTextField(
+                    value = markPasteText, onValueChange = { markPasteText = it },
+                    modifier = Modifier.fillMaxWidth().height(220.dp), colors = fieldColors(),
+                    textStyle = Type.Small.copy(fontFamily = FontFamily.Monospace, color = Pal.Egg),
+                    placeholder = { Text("{ \"colors\": [\"#2FB36D\", \"#E5484D\"], \"squareStyle\": \"ring\" }", style = Type.Small) },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { markPasteOpen = false; vm.setMarkStyleFromText(markPasteText); markPasteText = "" }, enabled = markPasteText.isNotBlank()) {
+                    Text("Áp dụng", style = Type.Button.copy(color = Pal.Gold))
+                }
+            },
+            dismissButton = { TextButton(onClick = { markPasteOpen = false }) { Text("Hủy", style = Type.Button.copy(color = Pal.EggDim)) } },
+        )
+    }
+    if (markTemplateOpen) {
+        val clip = LocalClipboardManager.current
+        val tpl = remember(markStyle) { markStyle.toJson() }
+        AlertDialog(
+            onDismissRequest = { markTemplateOpen = false },
+            containerColor = Pal.Panel,
+            title = { Text("Mẫu JSON kiểu nét vẽ", style = Type.Title) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        "Đây là kiểu đang dùng. Mọi trường đều tùy chọn. \"colors\" là 1 đến 6 màu dạng #RRGGBB (hoặc #AARRGGBB), màu đầu là màu mặc định khi vẽ. " +
+                            "\"arrowOpacity\" và \"squareOpacity\" từ 0.1 đến 1, \"arrowWidth\" từ 0.05 đến 0.35 (theo cạnh một ô), " +
+                            "\"squareStyle\" là \"fill\" (tô kín ô) hoặc \"ring\" (vòng tròn).",
+                        style = Type.Small,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    SelectionContainer { Text(tpl, style = Type.Small.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = Pal.Egg)) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { clip.setText(AnnotatedString(tpl)); markPasteText = tpl; markTemplateOpen = false; markPasteOpen = true }) {
+                    Text("Sao chép và sửa", style = Type.Button.copy(color = Pal.Gold))
+                }
+            },
+            dismissButton = { TextButton(onClick = { markTemplateOpen = false }) { Text("Đóng", style = Type.Button.copy(color = Pal.EggDim)) } },
         )
     }
     if (templateOpen) {

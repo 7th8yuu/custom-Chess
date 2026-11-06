@@ -32,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.customchess.core.Engine
 import com.customchess.data.SavedGame
+import com.customchess.data.MarkStyle
 import com.customchess.vm.AppViewModel
 import com.customchess.core.MoveClass
 import kotlinx.coroutines.delay
@@ -208,6 +210,9 @@ fun ReviewScreen(vm: AppViewModel, theme: BoardTheme) {
     var mode by remember { mutableStateOf(0) }
     var playing by remember { mutableStateOf(false) }
     var showBest by remember { mutableStateOf(true) }
+    val marks = remember { BoardMarks() }
+    val markStyle = remember(vm.settings.markStyle) { MarkStyle.parseOrDefault(vm.settings.markStyle) }
+    SideEffect { marks.style = markStyle }
     LaunchedEffect(mode) {
         when (mode) {
             1 -> r.analyze(depth = 4, msPerPosition = 400)
@@ -239,6 +244,7 @@ fun ReviewScreen(vm: AppViewModel, theme: BoardTheme) {
                 board = pos.board, flipped = flipped, lastMove = last, checkSquare = check, selected = -1, targets = emptySet(),
                 plyCount = index, theme = theme, modifier = Modifier.fillMaxWidth(), interactive = false,
                 capture = captured, highlightLast = vm.settings.highlightLast, arrow = bestHere,
+                marks = if (vm.settings.drawing) marks else null,
             )
             ReviewPlayer(if (flipped) g.black else g.white, if (flipped) r.accuracy(false) else r.accuracy(true), white = !flipped)
 
@@ -252,6 +258,10 @@ fun ReviewScreen(vm: AppViewModel, theme: BoardTheme) {
                 }, size = 52.dp)
                 GlassIconButton(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Tiến một nước", { playing = false; r.goto(index + 1) }, enabled = index < r.last)
                 GlassIconButton(Icons.Rounded.SkipNext, "Tới cuối ván", { playing = false; r.goto(r.last) }, enabled = index < r.last)
+            }
+            if (vm.settings.drawing) {
+                Spacer(Modifier.height(10.dp))
+                DrawBar(marks)
             }
 
             // trạng thái nước đang xem
