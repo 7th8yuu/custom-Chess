@@ -32,6 +32,16 @@
 
 Chess.com chỉ có API đọc dữ liệu công khai (hồ sơ, ván đã chơi), **không cho ứng dụng ngoài đi quân hay ghép trận**. Vì vậy phần đấu online dùng Lichess, nơi cho phép ứng dụng bên thứ ba chơi miễn phí.
 
+## Trong ván cờ
+
+Các công tắc nằm ở Cài đặt, nhóm "Ván cờ":
+
+- **Đi trước (premove)**: chọn nước ngay khi chưa tới lượt, quân của bạn được tô xanh kèm mũi tên; khi đối thủ đi xong, nếu nước đó còn hợp lệ thì ván tự đi (chạm lại để hủy). Không dùng khi chơi chung một máy.
+- **Xác nhận nước đi**: sau khi chọn nước hiện nút "Đi" và "Hủy", chạm bàn cờ cũng là hủy.
+- **Nút đầu hàng gọn**: nút Đầu hàng thu thành biểu tượng cờ nhỏ ở cuối hàng nút.
+- **Bảng nước đi**: bấm vào dải nước đi dưới bàn cờ để mở bảng số nước, Trắng, Đen; nước vừa đi được tô nổi.
+- Hiệu ứng mới (tắt cùng công tắc Hiệu ứng): vua bị chiếu nhấp nháy đỏ, đồng hồ còn dưới 20 giây đập nhịp, thanh xác nhận trượt vào, dòng trạng thái mờ dần khi đổi.
+
 ## Vẽ trên bàn cờ
 
 Trong ván và khi xem lại ván, giữ ngón tay trên một ô rồi kéo sang ô khác để vẽ mũi tên, giữ yên một ô để tô màu (vẽ lại đúng nét đó thì xóa,

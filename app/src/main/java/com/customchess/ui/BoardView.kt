@@ -89,7 +89,7 @@ fun ChessBoard(
         } else pop.snapTo(1f)
         prevPly = plyCount
     }
-    val pulse = rememberFxTime(hintSquare >= 0 && Fx.anim, maxFps = 30)
+    val pulse = rememberFxTime((hintSquare >= 0 || checkSquare >= 0) && Fx.anim, maxFps = 30)
 
     var dragSq by remember { mutableIntStateOf(-1) }
     var dragPos by remember { mutableStateOf(Offset.Zero) }
@@ -236,8 +236,8 @@ fun ChessBoard(
             val o = origin(checkSquare)
             drawRect(
                 Brush.radialGradient(
-                    listOf(Pal.Alert.copy(alpha = 0.95f), Pal.Alert.copy(alpha = 0f)),
-                    center = o + Offset(cell / 2, cell / 2), radius = cell * 0.75f,
+                    listOf(Pal.Alert.copy(alpha = if (Fx.anim) 0.8f + 0.18f * kotlin.math.sin(pulse.value * 6f) else 0.95f), Pal.Alert.copy(alpha = 0f)),
+                    center = o + Offset(cell / 2, cell / 2), radius = cell * (if (Fx.anim) 0.75f + 0.08f * kotlin.math.sin(pulse.value * 6f) else 0.75f),
                 ),
                 o, Size(cell, cell),
             )

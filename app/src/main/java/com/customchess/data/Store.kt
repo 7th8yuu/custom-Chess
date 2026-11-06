@@ -73,6 +73,8 @@ data class Settings(
     val drawing: Boolean = true,
     /** Đi trước: chọn nước khi chưa tới lượt, tự đi khi đối thủ vừa đi xong. */
     val premove: Boolean = false,
+    /** Nút Đầu hàng thu nhỏ thành biểu tượng cờ trắng. */
+    val compactResign: Boolean = true,
     /** Hiện nút Đi/Hủy sau khi chọn nước để tránh lỡ tay. */
     val confirmMove: Boolean = false,
     /** Kiểu nét vẽ dạng JSON (xem [MarkStyle]); rỗng = mặc định. */
@@ -166,6 +168,7 @@ class Store(context: Context) {
             analysisAi = b("s.analysisai", d.analysisAi),
             drawing = b("s.draw", d.drawing),
             premove = b("s.premove", d.premove),
+            compactResign = b("s.compactresign", d.compactResign),
             confirmMove = b("s.confirm", d.confirmMove),
             markStyle = sp.getString("s.markstyle", d.markStyle) ?: d.markStyle,
             puzzleHints = b("s.phints", d.puzzleHints),
@@ -216,6 +219,7 @@ class Store(context: Context) {
             .putBoolean("s.analysisai", s.analysisAi)
             .putBoolean("s.draw", s.drawing)
             .putBoolean("s.premove", s.premove)
+            .putBoolean("s.compactresign", s.compactResign)
             .putBoolean("s.confirm", s.confirmMove)
             .putString("s.markstyle", s.markStyle)
             .putBoolean("s.phints", s.puzzleHints)
