@@ -32,6 +32,17 @@
 
 Chess.com chỉ có API đọc dữ liệu công khai (hồ sơ, ván đã chơi), **không cho ứng dụng ngoài đi quân hay ghép trận**. Vì vậy phần đấu online dùng Lichess, nơi cho phép ứng dụng bên thứ ba chơi miễn phí.
 
+## Xem lại và phân tích ván
+
+Vào Lịch sử ván, chạm một ván để xem lại. Engine nội bộ chấm từng nước (chạy ngay trên máy, không cần mạng, không tốn phí):
+nước xuất sắc (!!), nước rất hay (!), nước tốt nhất, nước tốt, thiếu chính xác, sai lầm, sai lầm nghiêm trọng, kèm độ chính xác của mỗi bên.
+Có hai mức: phân tích nhanh (khoảng nửa phút) và phân tích kỹ (sâu hơn, lâu hơn nhiều).
+
+Ván ở nơi khác (chess.com, Lichess...) xem lại được bằng cách dán PGN: Lịch sử ván, Dán PGN. Ván được lưu vào lịch sử với nhãn PGN.
+
+Hai nhãn "xuất sắc" và "rất hay" được đặt điều kiện chặt vì engine chạy ở độ sâu thấp: "xuất sắc" là nước hy sinh quân thật sự
+(mất ít nhất một quân nhẹ đổi lấy tốt) mà vẫn giữ được thế khi chưa thắng chắc; "rất hay" là nước duy nhất giữ được thế. Chỉ mang tính tham khảo.
+
 ## Ngôn ngữ
 
 Giao diện có sẵn tiếng Việt (gốc), English, 简体中文 và Español. Vào Cài đặt, mục Ngôn ngữ để đổi (có tùy chọn theo hệ thống),

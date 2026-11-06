@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,12 +45,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.customchess.core.Engine
 import com.customchess.data.SavedGame
 import com.customchess.vm.AppViewModel
-import com.customchess.vm.MoveClass
+import com.customchess.core.MoveClass
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,6 +62,8 @@ import kotlin.math.roundToInt
 private fun dateText(ms: Long): String = SimpleDateFormat("dd/MM HH:mm", Lang.locale).format(Date(ms))
 
 private fun classColor(c: MoveClass): Color = when (c) {
+    MoveClass.BRILLIANT -> Color(0xFF26C2A3)
+    MoveClass.GREAT -> Color(0xFF5B9BD5)
     MoveClass.BEST -> Color(0xFF4CAF7D)
     MoveClass.GOOD -> Color(0xFF9AA5A0)
     MoveClass.INACCURACY -> Color(0xFFE5B84B)
@@ -99,12 +103,15 @@ fun GameRow(g: SavedGame, onClick: () -> Unit, onDelete: (() -> Unit)? = null) {
 @Composable
 fun HistoryScreen(vm: AppViewModel) {
     var deleteId by remember { mutableStateOf<String?>(null) }
+    var showPgn by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp)) {
         ScreenHeader("Lịch sử ván", vm::back)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            GhostButton("Dán PGN để xem lại ván từ nơi khác", { showPgn = true }, Modifier.fillMaxWidth())
+            Spacer(Modifier.height(12.dp))
             if (vm.history.isEmpty()) {
-                Spacer(Modifier.height(30.dp))
-                InfoCard("Chưa có ván nào. Chơi xong một ván (ít nhất vài nước) là ván được lưu ở đây để xem lại và phân tích.")
+                Spacer(Modifier.height(18.dp))
+                InfoCard("Chưa có ván nào. Chơi xong một ván (ít nhất vài nước) là ván được lưu ở đây để xem lại và phân tích. Ván từ chess.com hay Lichess cũng xem lại được bằng cách dán PGN.")
             } else {
                 Text("Chạm vào một ván để xem lại, chạy phân tích và xem nước nào là sai lầm.", style = Type.Small)
                 Spacer(Modifier.height(12.dp))
@@ -116,6 +123,7 @@ fun HistoryScreen(vm: AppViewModel) {
             Spacer(Modifier.height(24.dp))
         }
     }
+    if (showPgn) PgnImportDialog(vm) { showPgn = false }
     deleteId?.let { id ->
         AlertDialog(
             onDismissRequest = { deleteId = null },
@@ -126,6 +134,57 @@ fun HistoryScreen(vm: AppViewModel) {
             dismissButton = { TextButton(onClick = { deleteId = null }) { Text("Hủy", style = Type.Button.copy(color = Pal.EggDim)) } },
         )
     }
+}
+
+/** Hộp dán PGN: đọc ván, lưu vào lịch sử rồi mở màn xem lại. */
+@Composable
+private fun PgnImportDialog(vm: AppViewModel, onDismiss: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    var text by remember { mutableStateOf("") }
+    var mySide by remember { mutableStateOf<Boolean?>(null) } // true = trắng, false = đen, null = không rõ
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Pal.Panel,
+        title = { Text("Xem lại ván từ PGN", style = Type.Title) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Trên chess.com: mở ván, bấm Chia sẻ, chọn tab PGN rồi sao chép. Trên Lichess: bấm nút PGN dưới ván. " +
+                        "Ván được lưu vào lịch sử và phân tích ngay trên máy, miễn phí.",
+                    style = Type.Small,
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = text, onValueChange = { text = it; error = null },
+                    modifier = Modifier.fillMaxWidth(), minLines = 5, maxLines = 8,
+                    placeholder = { Text("1. e4 e5 2. Nf3 Nc6 ...", style = Type.Small) },
+                    colors = fieldColors(),
+                )
+                Spacer(Modifier.height(8.dp))
+                GhostButton("Dán từ bộ nhớ tạm", { clipboard.getText()?.text?.let { text = it; error = null } })
+                Spacer(Modifier.height(10.dp))
+                Text("Bạn cầm quân", style = Type.Small)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Pill("Trắng", mySide == true, { mySide = true })
+                    Pill("Đen", mySide == false, { mySide = false })
+                    Pill("Không rõ", mySide == null, { mySide = null })
+                }
+                if (error != null) {
+                    Spacer(Modifier.height(8.dp))
+                    ErrorText(error)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val err = vm.importPgn(text, mySide)
+                if (err == null) onDismiss() else error = err
+            }, enabled = text.isNotBlank()) { Text("Xem lại", style = Type.Button.copy(color = Pal.Gold)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy", style = Type.Button.copy(color = Pal.EggDim)) } },
+    )
 }
 
 // ---------------------------------------------------------------------------------- xem lại và phân tích
@@ -145,10 +204,17 @@ fun ReviewScreen(vm: AppViewModel, theme: BoardTheme) {
         return
     }
     val g = r.game
-    var started by remember { mutableStateOf(false) }
+    // 0 = chưa chạy / đã dừng, 1 = phân tích nhanh, 2 = phân tích kỹ (sâu hơn, lâu hơn)
+    var mode by remember { mutableStateOf(0) }
     var playing by remember { mutableStateOf(false) }
     var showBest by remember { mutableStateOf(true) }
-    LaunchedEffect(started) { if (started) r.analyze() }
+    LaunchedEffect(mode) {
+        when (mode) {
+            1 -> r.analyze(depth = 4, msPerPosition = 400)
+            2 -> r.analyze(depth = 6, msPerPosition = 1200)
+        }
+        if (mode != 0 && r.done) mode = 0
+    }
     LaunchedEffect(playing) {
         while (playing) {
             delay(900)
@@ -234,20 +300,33 @@ fun ReviewScreen(vm: AppViewModel, theme: BoardTheme) {
                         Text("Trắng", style = Type.Small, modifier = Modifier.width(44.dp))
                         Text("Đen", style = Type.Small, modifier = Modifier.width(44.dp))
                     }
+                    if (r.depthUsed < 6) {
+                        Spacer(Modifier.height(10.dp))
+                        GhostButton("Phân tích kỹ hơn", { r.reset(); mode = 2 })
+                    }
                 } else if (r.analyzing) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.size(20.dp), color = Pal.Gold, strokeWidth = 2.dp)
-                        Text("Đang phân tích ${r.analyzed}/${r.positions.size} thế...", style = Type.Body, modifier = Modifier.padding(start = 12.dp).weight(1f))
-                        GhostButton("Dừng", { started = false })
+                        Text(
+                            if (r.phase == 2) "Đang tìm nước rất hay và nước xuất sắc..." else "Đang phân tích ${r.analyzed}/${r.positions.size} thế...",
+                            style = Type.Body, modifier = Modifier.padding(start = 12.dp).weight(1f),
+                        )
+                        GhostButton("Dừng", { mode = 0 })
                     }
                 } else {
                     Text(
-                        "Engine nội bộ sẽ chấm từng thế (vài trăm mili giây mỗi thế) để tìm nước hay, nước sai lầm và tính độ chính xác của mỗi bên. " +
-                            "Độ sâu thấp nên chỉ mang tính tham khảo.",
+                        "Engine nội bộ chấm từng thế để tìm nước xuất sắc (!!), nước rất hay (!), nước sai lầm và tính độ chính xác của mỗi bên. " +
+                            "Bản nhanh mất khoảng nửa phút, bản kỹ sâu hơn nhưng lâu hơn nhiều. Engine chạy trên điện thoại nên chỉ mang tính tham khảo.",
                         style = Type.Small,
                     )
                     Spacer(Modifier.height(10.dp))
-                    PrimaryButton(if (r.analyzed > 0) "Phân tích tiếp" else "Phân tích ván", { started = true })
+                    if (r.analyzed > 0) {
+                        PrimaryButton("Phân tích tiếp", { mode = if (r.depthUsed >= 6) 2 else 1 })
+                    } else {
+                        PrimaryButton("Phân tích nhanh", { mode = 1 })
+                        Spacer(Modifier.height(8.dp))
+                        GhostButton("Phân tích kỹ", { mode = 2 })
+                    }
                 }
             }
             SettingSwitch("Mũi tên nước tốt nhất", "Sau khi phân tích, hiện nước engine thấy tốt nhất ở thế đang xem", showBest) { showBest = it }
@@ -271,7 +350,7 @@ fun ReviewScreen(vm: AppViewModel, theme: BoardTheme) {
                             ) {
                                 Text(
                                     r.sans[m] + (c?.mark?.let { if (it.isEmpty() || it == "★") "" else " $it" } ?: ""),
-                                    style = Type.Body.copy(fontSize = 15.sp, color = if (c != null && (c == MoveClass.MISTAKE || c == MoveClass.BLUNDER || c == MoveClass.INACCURACY)) classColor(c) else Pal.Egg),
+                                    style = Type.Body.copy(fontSize = 15.sp, color = if (c != null && c != MoveClass.BEST && c != MoveClass.GOOD) classColor(c) else Pal.Egg),
                                 )
                             }
                         } else Spacer(Modifier.weight(1f))
