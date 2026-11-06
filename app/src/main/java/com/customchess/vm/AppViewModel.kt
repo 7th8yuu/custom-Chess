@@ -30,6 +30,7 @@ import com.customchess.core.GameResult
 import com.customchess.core.Move
 import com.customchess.core.Pc
 import com.customchess.core.Pgn
+import com.customchess.core.Position
 import com.customchess.core.Reason
 import com.customchess.core.START_FEN
 import com.customchess.core.rankOf
