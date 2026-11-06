@@ -707,6 +707,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             selected = -1,
             targets = emptySet(),
             promotion = null,
+            pending = null, pendingBoard = null, pendingSan = "",
             canUndo = editable && game.moves.isNotEmpty() && res == null,
         ).extra()
         if (res != null) {
@@ -886,7 +887,8 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun onSquareTap(sq: Int) {
         val s = ui
         if (!s.active || s.result != null || s.disconnected || s.promotion != null) return
-        if (s.thinking || !isMyTurn()) return
+        if (s.pending != null) cancelPending() // chạm bàn cờ thì bỏ nước đang chờ xác nhận
+        if (s.thinking || !isMyTurn()) { premoveTap(sq); return }
         val p = game.position
         val piece = p.board[sq]
         val mine = piece != 0 && (piece > 0) == p.whiteToMove
@@ -909,17 +911,85 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         val piece = p.board[from]
         val lastRank = if (p.whiteToMove) 7 else 0
         if (abs(piece) == Pc.PAWN && rankOf(to) == lastRank) {
-            if (settings.autoQueen) { commitMove(Move(from, to, Pc.QUEEN), byMe = true); return }
+            if (settings.autoQueen) { requestMove(Move(from, to, Pc.QUEEN)); return }
             ui = ui.copy(promotion = from to to, targets = emptySet())
             return
         }
-        commitMove(Move(from, to), byMe = true)
+        requestMove(Move(from, to))
     }
 
     fun choosePromotion(type: Int) {
         val pr = ui.promotion ?: return
         ui = ui.copy(promotion = null)
-        commitMove(Move(pr.first, pr.second, type), byMe = true)
+        requestMove(Move(pr.first, pr.second, type))
+    }
+
+    /** Đi ngay, hoặc (khi bật "Xác nhận nước đi") hiện nước đó chờ bấm Đi hoặc Hủy. */
+    private fun requestMove(m: Move) {
+        if (!settings.confirmMove) { commitMove(m, byMe = true); return }
+        val p = game.position
+        if (m !in p.legalMoves()) { commitMove(m, byMe = true); return }
+        ui = ui.copy(pending = m, pendingBoard = p.apply(m).board.copyOf(), pendingSan = p.san(m), selected = -1, targets = emptySet(), promotion = null)
+    }
+
+    fun confirmPending() {
+        val m = ui.pending ?: return
+        cancelPending()
+        if (ui.active && ui.result == null && isMyTurn() && !ui.thinking) commitMove(m, byMe = true)
+    }
+
+    fun cancelPending() {
+        if (ui.pending != null) ui = ui.copy(pending = null, pendingBoard = null, pendingSan = "")
+    }
+
+    // ------------------------------------------------------------------ đi trước (premove)
+    /** Thế cờ giả định đến lượt mình (đổi bên đi, bỏ bắt tốt qua đường) để tìm nước đi trước hợp lệ. */
+    private fun asIfMyTurn(p: Position, iAmWhite: Boolean): Position? {
+        val parts = p.toFen().split(' ').toMutableList()
+        if (parts.size < 4) return null
+        parts[1] = if (iAmWhite) "w" else "b"
+        parts[3] = "-"
+        return Position.fromFen(parts.joinToString(" "))
+    }
+
+    private fun premoveTap(sq: Int) {
+        if (!settings.premove || mode == Mode.LOCAL) return
+        val iWhite = myWhite ?: return
+        val base = asIfMyTurn(game.position, iWhite) ?: return
+        val piece = base.board[sq]
+        val mine = piece != 0 && (piece > 0) == iWhite
+        val s = ui
+        if (s.selected >= 0) {
+            if (sq in s.targets) {
+                val from = s.selected
+                val lastRank = if (iWhite) 7 else 0
+                val promo = if (abs(base.board[from]) == Pc.PAWN && rankOf(sq) == lastRank) Pc.QUEEN else 0
+                ui = ui.copy(premove = Move(from, sq, promo), selected = -1, targets = emptySet())
+                return
+            }
+            if (mine && sq != s.selected) { selectForPremove(base, sq); return }
+            ui = ui.copy(selected = -1, targets = emptySet(), premove = null)
+            return
+        }
+        if (mine) selectForPremove(base, sq) else if (s.premove != null) ui = ui.copy(premove = null)
+    }
+
+    private fun selectForPremove(base: Position, sq: Int) {
+        val targets = base.legalMoves().filter { it.from == sq }.map { it.to }.toSet()
+        ui = ui.copy(selected = sq, targets = targets, premove = null)
+    }
+
+    /** Đối thủ vừa đi xong: đi nước đã đặt trước nếu còn hợp lệ, không thì bỏ. */
+    private fun runPremove() {
+        val pm = ui.premove ?: return
+        ui = ui.copy(premove = null, selected = -1, targets = emptySet())
+        if (!ui.active || ui.result != null || !isMyTurn()) return
+        val m = game.position.legalMoves().firstOrNull { it.from == pm.from && it.to == pm.to && (pm.promo == 0 || it.promo == pm.promo) } ?: return
+        val ply = game.moves.size
+        viewModelScope.launch {
+            delay(200) // chờ hiệu ứng nước của đối thủ
+            if (ui.active && ui.result == null && game.moves.size == ply && isMyTurn()) commitMove(m, byMe = true)
+        }
     }
 
     fun cancelPromotion() {
@@ -962,6 +1032,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             }
         }
         if (ui.result == null) maybeAiMove()
+        if (!byMe && ui.result == null) runPremove()
     }
 
     fun flipBoard() {
@@ -982,7 +1053,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             else -> 1
         }
         repeat(minOf(n, game.moves.size)) { game.undo() }
-        ui = ui.copy(thinking = false, aiError = null)
+        ui = ui.copy(thinking = false, aiError = null, premove = null)
         refresh()
         updateEval()
         maybeAiMove()
@@ -1057,7 +1128,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         if (ui.result != null) return
         game.forcedResult = r
         aiJob?.cancel()
-        ui = ui.copy(result = r, thinking = false, selected = -1, targets = emptySet(), drawOffered = false, promotion = null, canUndo = false)
+        ui = ui.copy(result = r, thinking = false, selected = -1, targets = emptySet(), drawOffered = false, promotion = null, canUndo = false, premove = null, pending = null, pendingBoard = null, pendingSan = "")
         onGameEnded(r)
     }
 
@@ -1670,7 +1741,10 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         clockMs[1] = s.optLong("btime", clockMs[1])
         lastTick = SystemClock.elapsedRealtime()
         publishClocks()
-        if (changed) refresh { copy(moveTick = moveTick + 1, notice = null) }
+        if (changed) {
+            refresh { copy(moveTick = moveTick + 1, notice = null) }
+            if (ui.result == null) runPremove()
+        }
         val opp = if (myWhite == true) s.optBoolean("bdraw") else s.optBoolean("wdraw")
         ui = ui.copy(drawOffered = opp && ui.result == null)
         val status = s.optString("status")

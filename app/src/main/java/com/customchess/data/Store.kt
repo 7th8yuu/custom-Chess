@@ -71,6 +71,10 @@ data class Settings(
     val analysisAi: Boolean = true,
     /** Vẽ mũi tên và tô ô trên bàn cờ (giữ rồi kéo, hoặc nút Vẽ) trong ván và khi xem lại. */
     val drawing: Boolean = true,
+    /** Đi trước: chọn nước khi chưa tới lượt, tự đi khi đối thủ vừa đi xong. */
+    val premove: Boolean = false,
+    /** Hiện nút Đi/Hủy sau khi chọn nước để tránh lỡ tay. */
+    val confirmMove: Boolean = false,
     /** Kiểu nét vẽ dạng JSON (xem [MarkStyle]); rỗng = mặc định. */
     val markStyle: String = "",
 
@@ -161,6 +165,8 @@ class Store(context: Context) {
             analysis = b("s.analysis", d.analysis),
             analysisAi = b("s.analysisai", d.analysisAi),
             drawing = b("s.draw", d.drawing),
+            premove = b("s.premove", d.premove),
+            confirmMove = b("s.confirm", d.confirmMove),
             markStyle = sp.getString("s.markstyle", d.markStyle) ?: d.markStyle,
             puzzleHints = b("s.phints", d.puzzleHints),
             puzzleAutoNext = b("s.pnext", d.puzzleAutoNext),
@@ -209,6 +215,8 @@ class Store(context: Context) {
             .putBoolean("s.analysis", s.analysis)
             .putBoolean("s.analysisai", s.analysisAi)
             .putBoolean("s.draw", s.drawing)
+            .putBoolean("s.premove", s.premove)
+            .putBoolean("s.confirm", s.confirmMove)
             .putString("s.markstyle", s.markStyle)
             .putBoolean("s.phints", s.puzzleHints)
             .putBoolean("s.pnext", s.puzzleAutoNext)

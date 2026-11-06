@@ -245,7 +245,9 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
     val topWhite = ui.flipped
     val mineAt: (Int) -> Boolean = { sq ->
         val p = ui.board[sq]
-        p != 0 && (p > 0) == ui.whiteToMove && (ui.myWhite == null || ui.myWhite == ui.whiteToMove) && !ui.thinking
+        val myTurn = ui.myWhite == null || ui.myWhite == ui.whiteToMove
+        if (myTurn && !ui.thinking) p != 0 && (p > 0) == ui.whiteToMove
+        else vm.settings.premove && ui.myWhite != null && p != 0 && (p > 0) == ui.myWhite // đi trước: kéo quân của mình khi chưa tới lượt
     }
     val gameOver = ui.result != null
 
@@ -265,7 +267,7 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
         }
         Spacer(Modifier.height(4.dp))
         ChessBoard(
-            board = ui.board, flipped = ui.flipped, lastMove = ui.lastMove, checkSquare = ui.checkSquare,
+            board = ui.pendingBoard ?: ui.board, flipped = ui.flipped, lastMove = ui.pending ?: ui.lastMove, checkSquare = ui.checkSquare,
             selected = ui.selected, targets = ui.targets, plyCount = ui.plyCount, theme = theme,
             modifier = Modifier.fillMaxWidth(),
             interactive = !gameOver && !ui.disconnected && ui.promotion == null,
@@ -276,9 +278,17 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
             highlightLast = vm.settings.highlightLast,
             arrow = vm.analysis?.lines?.firstOrNull()?.move,
             marks = if (vm.settings.drawing) marks else null,
+            premove = ui.premove,
         )
         Spacer(Modifier.height(4.dp))
         PlayerSide(vm, !topWhite)
+        if (ui.pending != null) {
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ControlButton("Hủy", vm::cancelPending, Modifier.weight(1f))
+                PrimaryButton("Đi ${ui.pendingSan}", vm::confirmPending, Modifier.weight(2f))
+            }
+        }
 
         // dòng trạng thái
         val statusText = when {

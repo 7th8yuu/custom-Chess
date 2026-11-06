@@ -90,6 +90,13 @@ data class GameUi(
     val evalCp: Int? = null,
     /** Mã bot đang đấu (chế độ BOT). */
     val botId: String = "",
+    /** Nước đang chờ xác nhận (khi bật "Xác nhận nước đi"), null nếu không có. */
+    val pending: Move? = null,
+    /** Bàn cờ xem trước khi đã đi nước đang chờ xác nhận. */
+    val pendingBoard: IntArray? = null,
+    val pendingSan: String = "",
+    /** Nước đi trước (premove) đã đặt khi chưa tới lượt; tự đi khi đối thủ đi xong nếu còn hợp lệ. */
+    val premove: Move? = null,
 )
 
 data class LichessUi(

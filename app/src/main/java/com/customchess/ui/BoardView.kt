@@ -68,6 +68,8 @@ fun ChessBoard(
     hintSquare: Int = -1,
     /** Nét vẽ của người dùng (mũi tên, ô tô màu); null = không cho vẽ. */
     marks: BoardMarks? = null,
+    /** Nước đi trước (premove) đã đặt: tô xanh hai ô và vẽ mũi tên. */
+    premove: Move? = null,
 ) {
     val gestureMarks = marks?.takeIf { !it.readOnly }
     val measurer = rememberTextMeasurer()
@@ -241,6 +243,13 @@ fun ChessBoard(
             )
         }
 
+        // nước đi trước (premove): tô hai ô dưới quân cờ
+        if (premove != null) {
+            val c = Color(0xFF3B82F6).copy(alpha = 0.38f)
+            drawRect(c, origin(premove.from), Size(cell, cell))
+            drawRect(c, origin(premove.to), Size(cell, cell))
+        }
+
         // ô người dùng tô màu (nằm dưới quân cờ)
         if (marks != null) {
             val st = marks.style
@@ -357,6 +366,7 @@ fun ChessBoard(
             }
         }
         if (arrow != null) drawArrow(arrow.from, arrow.to, Pal.Tertiary.copy(alpha = 0.82f))
+        if (premove != null) drawArrow(premove.from, premove.to, Color(0xFF3B82F6).copy(alpha = 0.8f))
         if (marks != null) {
             val st = marks.style
             for (a in marks.arrows) drawArrow(a.from, a.to, marks.colorOf(a.color).copy(alpha = st.arrowOpacity), st.arrowWidth)
