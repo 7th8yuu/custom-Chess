@@ -123,76 +123,6 @@ fun LoginScreen(vm: AppViewModel, theme: BoardTheme) {
     if (guide) GoogleGuideDialog { guide = false }
 }
 
-// ---------------------------------------------------------------------------------- trang chủ
-
-@Composable
-private fun ModeRow(piece: Int, title: String, subtitle: String, onClick: () -> Unit, locked: Boolean = false) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .alpha(if (locked) 0.62f else 1f)
-            .padding(vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.size(54.dp).clip(RoundedCornerShape(14.dp)).background(Pal.PanelHi),
-            contentAlignment = Alignment.Center,
-        ) { PieceIcon(piece, 40.dp) }
-        Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-            Text2(title, Type.Heading.copy(fontSize = 19.sp))
-            Text2(subtitle, Type.Small)
-        }
-        Text2(if (locked) "Khóa" else "›", Type.Title.copy(color = if (locked) Pal.GoldDeep else Pal.Gold, fontSize = if (locked) 14.sp else 26.sp))
-    }
-}
-
-@Composable
-private fun Hairline() {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(Pal.Hair))
-}
-
-@Composable
-fun HomeScreen(vm: AppViewModel, theme: BoardTheme) {
-    val user = vm.user
-    Column(
-        Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-    ) {
-        Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text2("Custom Chess", Type.Title.copy(fontSize = 28.sp))
-                Text2(
-                    when {
-                        user == null || user.isGuest -> "Chế độ khách"
-                        vm.lichessUi.ratingText.isNotEmpty() -> "Xin chào, ${user.name}  ·  ${vm.lichessUi.ratingText}"
-                        else -> "Xin chào, ${user.name}"
-                    },
-                    Type.Small,
-                )
-            }
-            Avatar(user?.initial ?: "?", modifier = Modifier.clickable { vm.go(Screen.SETTINGS) })
-        }
-        DemoBoard(theme, Modifier.fillMaxWidth())
-        Spacer(Modifier.height(14.dp))
-        ModeRow(Pc.ROOK, "Chơi với máy", "Engine offline, 5 cấp độ", { vm.go(Screen.ENGINE_SETUP) })
-        Hairline()
-        ModeRow(Pc.QUEEN, "Chơi với AI qua API", "Gemini, OpenAI hoặc Claude bằng key của bạn", { vm.go(Screen.API_SETUP) })
-        Hairline()
-        ModeRow(Pc.PAWN, "Chơi với bạn bè", "Wi-Fi, Bluetooth hoặc chung một máy", { vm.go(Screen.FRIENDS) })
-        Hairline()
-        ModeRow(
-            Pc.KING, "Đấu online",
-            when {
-                !vm.canPlayOnline -> "Đăng nhập Lichess hoặc Google để mở khóa"
-                vm.lichessUi.connected -> "Ghép trận ngay với người chơi trên Lichess"
-                else -> "Kết nối Lichess để ghép trận"
-            },
-            { vm.go(Screen.ONLINE) }, locked = !vm.canPlayOnline,
-        )
-        Spacer(Modifier.height(28.dp))
-    }
-}
-
 // ---------------------------------------------------------------------------------- chơi với máy
 
 private fun colorOf(i: Int): Boolean? = when (i) { 0 -> true; 1 -> false; else -> null }
@@ -234,21 +164,24 @@ fun ApiSetupScreen(vm: AppViewModel) {
     var color by remember { mutableIntStateOf(2) }
     val provider = vm.settings.provider
     val ready = vm.hasKey(provider)
+    var optionalOpen by remember { mutableStateOf(provider.isOptional) }
     Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp)) {
         ScreenHeader("Chơi với AI qua API", vm::back)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            Text2("Chọn một trong ba hãng và dùng API key của chính bạn. Key chỉ lưu trên máy này.", Type.Small)
+            Text2("Gemini là AI chính của ứng dụng. OpenAI và Claude là tùy chọn nếu bạn đã có key. Key chỉ lưu trên máy này.", Type.Small)
             SectionTitle("Hãng AI")
-            for (p in com.customchess.ai.Provider.values()) {
-                val slot = vm.slot(p)
-                ChoiceRow(
-                    title = p.label,
-                    subtitle = slot.model.ifEmpty { p.defaultModel },
-                    selected = provider == p,
-                    onClick = { vm.selectProvider(p) },
-                    trailing = if (vm.hasKey(p)) "Đã có key" else "Chưa có key",
-                )
+            ProviderRow(vm, com.customchess.ai.Provider.MAIN, provider)
+            Spacer(Modifier.height(8.dp))
+            GhostButton(
+                if (optionalOpen) "Ẩn tùy chọn (OpenAI, Claude)" else "Tùy chọn: OpenAI, Claude",
+                { optionalOpen = !optionalOpen }, Modifier.fillMaxWidth(),
+            )
+            if (optionalOpen) {
                 Spacer(Modifier.height(8.dp))
+                for (p in com.customchess.ai.Provider.OPTIONAL) {
+                    ProviderRow(vm, p, provider)
+                    Spacer(Modifier.height(8.dp))
+                }
             }
             SectionTitle("Bạn cầm quân")
             ColorPills(color) { color = it }
@@ -264,8 +197,20 @@ fun ApiSetupScreen(vm: AppViewModel) {
     }
 }
 
+@Composable
+private fun ProviderRow(vm: AppViewModel, p: com.customchess.ai.Provider, selected: com.customchess.ai.Provider) {
+    val slot = vm.slot(p)
+    ChoiceRow(
+        title = p.label,
+        subtitle = slot.model.ifEmpty { p.defaultModel },
+        selected = selected == p,
+        onClick = { vm.selectProvider(p) },
+        trailing = if (vm.hasKey(p)) "Đã có key" else "Chưa có key",
+    )
+}
+
 /** Text dùng style của ứng dụng, viết gọn. */
 @Composable
 fun Text2(text: String, style: androidx.compose.ui.text.TextStyle, modifier: Modifier = Modifier) {
-    androidx.compose.material3.Text(text, style = style, modifier = modifier)
+    Text(text, style = style, modifier = modifier)
 }

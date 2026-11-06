@@ -5,11 +5,19 @@ import com.customchess.core.Move
 import com.customchess.core.Position
 
 enum class Screen {
-    LOGIN, HOME, ENGINE_SETUP, API_SETUP, AI_SETTINGS, FRIENDS, LOCAL_SETUP,
+    LOGIN, HOME, PLAY, PUZZLES, LEARN, PROFILE,
+    ENGINE_SETUP, API_SETUP, AI_SETTINGS, FRIENDS, LOCAL_SETUP,
     WIFI_HOST, WIFI_JOIN, BT_HOST, BT_JOIN, ONLINE, SETTINGS, APPEARANCE, GAME,
+    BOTS, HISTORY, REVIEW, PUZZLE, LESSON, TOURNAMENTS,
 }
 
-enum class Mode { ENGINE, API, LOCAL, LINK, LICHESS }
+/** Các màn hình gốc có thanh điều hướng dưới. */
+val TAB_SCREENS = setOf(Screen.HOME, Screen.PLAY, Screen.PUZZLES, Screen.LEARN, Screen.PROFILE)
+
+enum class Mode { ENGINE, API, LOCAL, LINK, LICHESS, BOT }
+
+/** Thao tác với bản sao lưu trên Google Drive. */
+enum class DriveOp { BACKUP, RESTORE }
 
 /** baseSec = 0 nghĩa là không giới hạn thời gian. */
 data class TimePreset(val label: String, val baseSec: Int, val incSec: Int) {
@@ -76,6 +84,12 @@ data class GameUi(
     val disconnected: Boolean = false,
     /** Tăng mỗi nước đi, để giao diện rung nhẹ. */
     val moveTick: Int = 0,
+    /** Nước vừa rồi có ăn quân không (cho âm thanh và hiệu ứng). */
+    val lastCapture: Boolean = false,
+    /** Điểm đánh giá theo quân trắng (centipawn) cho thanh đánh giá; null = chưa có. */
+    val evalCp: Int? = null,
+    /** Mã bot đang đấu (chế độ BOT). */
+    val botId: String = "",
 )
 
 data class LichessUi(

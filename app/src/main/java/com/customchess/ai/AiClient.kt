@@ -20,7 +20,10 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** Ba hãng AI được hỗ trợ khi chơi online bằng API key của người dùng. */
+/**
+ * Ba hãng AI được hỗ trợ khi chơi online bằng API key của người dùng.
+ * Gemini là hãng chính (hiện sẵn, có gói miễn phí); OpenAI và Claude là tùy chọn cho ai đã có key.
+ */
 enum class Provider(
     val label: String,
     val tagline: String,
@@ -29,20 +32,28 @@ enum class Provider(
     val keyUrl: String,
 ) {
     GEMINI(
-        "Gemini", "Dễ lấy key nhất, có gói miễn phí",
+        "Gemini", "AI chính của ứng dụng: dễ lấy key nhất, có gói miễn phí",
         "https://generativelanguage.googleapis.com", "gemini-2.5-flash",
         "https://aistudio.google.com/apikey",
     ),
     OPENAI(
-        "OpenAI", "Dùng được cả DeepSeek, Groq, OpenRouter... qua địa chỉ tùy chỉnh",
+        "OpenAI", "Tùy chọn. Dùng được cả DeepSeek, Groq, OpenRouter... qua địa chỉ tùy chỉnh",
         "https://api.openai.com/v1", "gpt-4o-mini",
         "https://platform.openai.com/api-keys",
     ),
     CLAUDE(
-        "Claude", "Sonnet 5.5 với effort thấp, trả lời nhanh",
+        "Claude", "Tùy chọn. Sonnet 5.5 với effort thấp, trả lời nhanh",
         "https://api.anthropic.com", "claude-sonnet-5-5",
         "https://console.anthropic.com/settings/keys",
     );
+
+    /** Hãng tùy chọn (không phải hãng chính). */
+    val isOptional: Boolean get() = this != GEMINI
+
+    companion object {
+        val MAIN: Provider = GEMINI
+        val OPTIONAL: List<Provider> = listOf(OPENAI, CLAUDE)
+    }
 }
 
 data class AiConfig(val provider: Provider, val apiKey: String, val model: String, val baseUrl: String) {
@@ -100,6 +111,12 @@ object AiClient {
     }
 
     fun extractMove(pos: Position, legal: List<Move>, text: String): Move? = MoveExtract.fromReply(pos, legal, text)
+
+    /** Nhờ AI giải thích thế cờ dựa trên các nước engine đã tính. [answerLanguage] là tên tiếng Anh của ngôn ngữ trả lời. */
+    suspend fun explain(
+        cfg: AiConfig, pos: Position, movetext: String, lines: List<com.customchess.core.CoachLine>,
+        lastMoveSan: String?, answerLanguage: String,
+    ): String = chat(cfg, CoachPrompt.system(answerLanguage), CoachPrompt.user(pos, movetext, lines, lastMoveSan))
 
     // ------------------------------------------------------------------ gọi API
 

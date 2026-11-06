@@ -32,6 +32,18 @@
 
 Chess.com chỉ có API đọc dữ liệu công khai (hồ sơ, ván đã chơi), **không cho ứng dụng ngoài đi quân hay ghép trận**. Vì vậy phần đấu online dùng Lichess, nơi cho phép ứng dụng bên thứ ba chơi miễn phí.
 
+## Ngôn ngữ
+
+Giao diện có sẵn tiếng Việt (gốc), English, 简体中文 và Español. Vào Cài đặt, mục Ngôn ngữ để đổi (có tùy chọn theo hệ thống),
+đổi xong có hiệu lực ngay và AI (phân tích, chơi với AI) cũng trả lời bằng ngôn ngữ đó.
+
+Muốn thêm ngôn ngữ khác ngay trên máy: Cài đặt, Ngôn ngữ, Xuất file mẫu, dịch phần giá trị (nhờ AI hoặc người quen),
+điền mục `_meta` (`code`, `native`, `english`) rồi Nhập file ngôn ngữ. Các câu thiếu bản dịch tự hiện tiếng Việt.
+
+Với người phát triển: mã nguồn viết bằng tiếng Việt, bản dịch là từ điển `app/src/main/assets/i18n/<mã>.json` (khóa là câu tiếng Việt,
+câu có dữ liệu chèn dùng `{0}`, `{1}`). `python3 tools/i18n/extract.py app/src/main/java ra.json` liệt kê mọi câu cần dịch,
+`python3 tools/i18n/check.py <mã>` báo câu thiếu hoặc sai chỗ chèn. Bài kiểm thử `LanguageFilesTest` chạy trong CI.
+
 ## Build bằng GitHub Actions
 
 Mỗi lần push lên `main` (hoặc bấm *Run workflow*), workflow `.github/workflows/android.yml` sẽ chạy unit test rồi `./gradlew assembleDebug`. Tải APK ở tab **Actions → lần chạy → Artifacts → CustomChess-debug-apk**.

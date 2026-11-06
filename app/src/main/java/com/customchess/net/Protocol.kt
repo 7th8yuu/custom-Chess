@@ -71,3 +71,20 @@ object Protocol {
         }
     }
 }
+
+/**
+ * Chia màu giữa hai máy. Chủ phòng quyết định (0 = Trắng, 1 = Đen, khác = ngẫu nhiên) rồi báo cho khách bằng START,
+ * trong đó START mang màu của KHÁCH. Mỗi máy chỉ được suy ra màu của chính mình từ các hàm này, để hai máy luôn khác màu.
+ */
+object Sides {
+    fun hostIsWhite(choice: Int, coin: () -> Boolean): Boolean = when (choice) {
+        0 -> true
+        1 -> false
+        else -> coin()
+    }
+
+    fun startFor(hostIsWhite: Boolean, baseSec: Int, incSec: Int) = Msg.Start(!hostIsWhite, baseSec, incSec)
+
+    /** Màu của máy khách khi nhận START. */
+    fun guestIsWhite(m: Msg.Start): Boolean = m.guestIsWhite
+}

@@ -8,6 +8,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -17,7 +19,10 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * Một bộ quân: chọn họ hình dạng ([family], xem [PieceShapes]) và cách tô màu.
@@ -47,6 +52,10 @@ class PieceStyle(
     val haloWhite: Color? = null,
     val haloBlack: Color? = null,
     val dynamic: Boolean = false,
+    /** Ảnh thay cho cả quân (bộ tự thêm). Khóa là mã quân có dấu: dương = trắng, âm = đen. */
+    val images: Map<Int, ImageBitmap> = emptyMap(),
+    /** Hình dạng riêng (đường vẽ trong khung 100x100) thay cho hình dạng của họ [family]. */
+    val bodies: Map<Int, Path> = emptyMap(),
 ) {
     private val fixedWhite: Brush by lazy { gradient(whiteTop, whiteBottom) }
     private val fixedBlack: Brush by lazy { gradient(blackTop, blackBottom) }
@@ -92,8 +101,25 @@ object PieceArt {
         style: PieceStyle = Skin.pieceStyle,
     ) {
         val type = abs(piece)
+        val img = style.images[piece]
+        if (img != null) {
+            if (style.shadow > 0f) {
+                val k0 = size / 100f
+                drawOval(
+                    Color.Black.copy(alpha = style.shadow * alpha),
+                    topLeft = Offset(topLeft.x + 20f * k0, topLeft.y + 85.5f * k0), size = Size(60f * k0, 9f * k0),
+                )
+            }
+            drawImage(
+                img, srcOffset = IntOffset.Zero, srcSize = IntSize(img.width, img.height),
+                dstOffset = IntOffset(topLeft.x.roundToInt(), topLeft.y.roundToInt()),
+                dstSize = IntSize(size.roundToInt(), size.roundToInt()),
+                alpha = alpha, filterQuality = FilterQuality.Medium,
+            )
+            return
+        }
         val geo = geometries.getOrNull(style.family) ?: return
-        val body = geo.body[type] ?: return
+        val body = style.bodies[piece] ?: geo.body[type] ?: return
         val white = piece > 0
         val line = style.line(white)
         val lw = style.lineWidth

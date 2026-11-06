@@ -58,18 +58,31 @@ fun ChessBoard(
     showHints: Boolean = true,
     isMine: (Int) -> Boolean = { false },
     onSquare: (Int) -> Unit = {},
+    /** Nước vừa rồi có ăn quân không: nổ tia sáng ở ô đến. */
+    capture: Boolean = false,
+    highlightLast: Boolean = true,
+    /** Mũi tên chỉ một nước đi (gợi ý, nước tốt nhất khi xem lại). */
+    arrow: Move? = null,
+    /** Ô cần nhấp nháy (gợi ý câu đố). */
+    hintSquare: Int = -1,
 ) {
     val measurer = rememberTextMeasurer()
-    val photo = rememberBoardPhoto(theme.photo)
+    val photo = rememberBoardPhoto(theme)
     val anim = remember { Animatable(1f) }
+    val pop = remember { Animatable(1f) }
     var prevPly by remember { mutableIntStateOf(plyCount) }
     LaunchedEffect(plyCount) {
-        if (plyCount > prevPly) {
+        if (plyCount > prevPly && Fx.slide) {
             anim.snapTo(0f)
-            anim.animateTo(1f, tween(180, easing = FastOutSlowInEasing))
+            anim.animateTo(1f, tween(Fx.slideMs, easing = FastOutSlowInEasing))
         } else anim.snapTo(1f)
+        if (plyCount > prevPly && capture && Fx.burst) {
+            pop.snapTo(0f)
+            pop.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
+        } else pop.snapTo(1f)
         prevPly = plyCount
     }
+    val pulse = rememberFxTime(hintSquare >= 0 && Fx.anim, maxFps = 30)
 
     var dragSq by remember { mutableIntStateOf(-1) }
     var dragPos by remember { mutableStateOf(Offset.Zero) }
@@ -176,7 +189,7 @@ fun ChessBoard(
         }
 
         // nước đi cuối, ô đang chọn
-        lastMove?.let {
+        if (highlightLast) lastMove?.let {
             drawRect(theme.highlight.copy(alpha = 0.36f), origin(it.from), Size(cell, cell))
             drawRect(theme.highlight.copy(alpha = 0.46f), origin(it.to), Size(cell, cell))
         }
@@ -243,6 +256,57 @@ fun ChessBoard(
             val pos = Offset(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
             drawPiece(board[movingTo], pos + Offset(pad, pad), pieceSize)
         }
+        // tia sáng khi ăn quân
+        if (capture && lastMove != null && pop.value < 1f) {
+            val c = origin(lastMove.to) + Offset(cell / 2, cell / 2)
+            val pr = pop.value
+            for (k in 0 until 12) {
+                val ang = k * (2.0 * Math.PI / 12.0)
+                val r = cell * (0.18f + 0.62f * pr)
+                val dot = cell * 0.075f * (1f - pr)
+                drawCircle(
+                    (if (k % 2 == 0) theme.highlight else Pal.Tertiary).copy(alpha = (1f - pr) * 0.95f), dot,
+                    c + Offset((kotlin.math.cos(ang) * r).toFloat(), (kotlin.math.sin(ang) * r).toFloat()),
+                )
+            }
+            drawCircle(theme.highlight.copy(alpha = (1f - pr) * 0.55f), cell * (0.25f + 0.55f * pr), c, style = Stroke(width = cell * 0.05f * (1f - pr)))
+        }
+
+        // ô gợi ý nhấp nháy
+        if (hintSquare >= 0) {
+            val c = origin(hintSquare) + Offset(cell / 2, cell / 2)
+            val a = 0.55f + 0.4f * kotlin.math.sin(pulse.value * 5f)
+            drawCircle(theme.highlight.copy(alpha = a.coerceIn(0.2f, 1f)), cell * 0.5f, c, style = Stroke(width = cell * 0.09f))
+        }
+
+        // mũi tên nước đi
+        if (arrow != null) {
+            val a = origin(arrow.from) + Offset(cell / 2, cell / 2)
+            val b = origin(arrow.to) + Offset(cell / 2, cell / 2)
+            val dx = b.x - a.x
+            val dy = b.y - a.y
+            val len = kotlin.math.sqrt(dx * dx + dy * dy)
+            if (len > 1f) {
+                val ux = dx / len
+                val uy = dy / len
+                val head = cell * 0.42f
+                val tail = a + Offset(ux * cell * 0.2f, uy * cell * 0.2f)
+                val neck = b - Offset(ux * head * 0.8f, uy * head * 0.8f)
+                val col = Pal.Tertiary.copy(alpha = 0.82f)
+                drawLine(col, tail, neck, strokeWidth = cell * 0.17f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                val px = -uy
+                val py = ux
+                val tip = b - Offset(ux * cell * 0.08f, uy * cell * 0.08f)
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(tip.x, tip.y)
+                    lineTo(neck.x + px * head * 0.55f, neck.y + py * head * 0.55f)
+                    lineTo(neck.x - px * head * 0.55f, neck.y - py * head * 0.55f)
+                    close()
+                }
+                drawPath(path, col)
+            }
+        }
+
         if (dragSq >= 0 && board[dragSq] != 0) {
             val big = cell * 1.16f
             drawPiece(board[dragSq], dragPos - Offset(big / 2, big * 0.62f), big)

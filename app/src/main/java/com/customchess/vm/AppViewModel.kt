@@ -2,6 +2,7 @@ package com.customchess.vm
 
 import android.app.Activity
 import android.app.Application
+import android.app.PendingIntent
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -9,6 +10,7 @@ import android.net.Uri
 import android.os.SystemClock
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -20,6 +22,8 @@ import com.customchess.BuildConfig
 import com.customchess.ai.AiClient
 import com.customchess.ai.AiException
 import com.customchess.ai.Provider
+import com.customchess.core.Coach
+import com.customchess.core.CoachLine
 import com.customchess.core.Engine
 import com.customchess.core.Game
 import com.customchess.core.GameResult
@@ -29,6 +33,19 @@ import com.customchess.core.Reason
 import com.customchess.core.START_FEN
 import com.customchess.core.rankOf
 import com.customchess.data.ApiSlot
+import com.customchess.data.Bot
+import com.customchess.data.CustomBoard
+import com.customchess.data.CustomException
+import com.customchess.data.CustomPieces
+import com.customchess.data.Customs
+import com.customchess.data.DriveAuth
+import com.customchess.data.DriveBackup
+import com.customchess.data.DriveException
+import com.customchess.data.BotBrain
+import com.customchess.data.HistoryStore
+import com.customchess.data.Progress
+import com.customchess.data.SavedGame
+import com.customchess.data.botById
 import com.customchess.data.AuthException
 import com.customchess.data.GoogleAuth
 import com.customchess.data.Settings
@@ -44,6 +61,10 @@ import com.customchess.net.LichessClient
 import com.customchess.net.LichessException
 import com.customchess.net.Msg
 import com.customchess.net.StreamLink
+import com.customchess.ui.PieceStyleCache
+import com.customchess.ui.Snd
+import com.customchess.ui.Sfx
+import com.customchess.ui.forgetBoardPhoto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -60,6 +81,301 @@ private val LOBBY_SCREENS = setOf(Screen.WIFI_HOST, Screen.WIFI_JOIN, Screen.BT_
 class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private val store = Store(app)
+    private val historyStore = HistoryStore(app)
+
+    // ------------------------------------------------------------------ tiến độ & lịch sử
+    var progress by mutableStateOf(Progress.fromJson(store.progressJson))
+        private set
+    val history = mutableStateListOf<SavedGame>().also { it.addAll(historyStore.load()) }
+
+    fun updateProgress(f: (Progress) -> Progress) {
+        progress = f(progress)
+        store.progressJson = progress.toJson()
+    }
+
+    /** Ngăn chọn Online / Ngoại tuyến ở tab Chơi (0 = online, 1 = ngoại tuyến). */
+    var playSegment by mutableIntStateOf(0)
+
+    val dailyDone: Boolean get() = progress.dailyDone == Progress.today()
+
+    // ------------------------------------------------------------------ xem lại ván, câu đố, bài học
+    var review by mutableStateOf<ReviewState?>(null)
+        private set
+
+    fun openReview(g: SavedGame) {
+        review = ReviewState(g)
+        go(Screen.REVIEW)
+    }
+
+    fun deleteGame(id: String) {
+        history.removeAll { it.id == id }
+        val snapshot = history.toList()
+        io { historyStore.save(snapshot) }
+    }
+
+    fun clearHistory() {
+        history.clear()
+        io { historyStore.clear() }
+    }
+
+    var puzzleRun by mutableStateOf<PuzzleRun?>(null)
+        private set
+
+    fun startPuzzles(mode: PuzzleMode, filter: String = "") {
+        val run = PuzzleRun(
+            app, mode, filter,
+            getProgress = { progress },
+            setProgress = { p -> progress = p; store.progressJson = p.toJson() },
+            autoQueen = { settings.autoQueen },
+        )
+        if (mode == PuzzleMode.RUSH) run.startRush()
+        puzzleRun = run
+        go(Screen.PUZZLE)
+    }
+
+    var lessonId by mutableStateOf("")
+        private set
+
+    fun openLesson(id: String) {
+        lessonId = id
+        go(Screen.LESSON)
+    }
+
+    fun saveLessonStep(id: String, step: Int) {
+        updateProgress { p -> if ((p.lessons[id] ?: 0) >= step) p else p.copy(lessons = p.lessons + (id to step)).touch() }
+    }
+
+    // ------------------------------------------------------------------ bàn cờ và bộ quân tự thêm
+    val customs = Customs(app)
+    val customBoards = mutableStateListOf<CustomBoard>().also { it.addAll(customs.loadBoards()) }
+    val customPieces = mutableStateListOf<CustomPieces>().also { it.addAll(customs.loadPieces()) }
+    var customBusy by mutableStateOf(false)
+        private set
+    var customMsg by mutableStateOf<String?>(null)
+        private set
+    var customMsgError by mutableStateOf(false)
+        private set
+
+    fun clearCustomMsg() { customMsg = null }
+
+    private fun reloadCustoms() {
+        customBoards.clear(); customBoards.addAll(customs.loadBoards())
+        customPieces.clear(); customPieces.addAll(customs.loadPieces())
+    }
+
+    private fun customTask(okMsg: String, block: () -> Unit) {
+        if (customBusy) return
+        customBusy = true
+        customMsg = null
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { block() }
+                customMsgError = false
+                customMsg = okMsg
+                maybeAutoBackup()
+            } catch (e: CustomException) {
+                customMsgError = true
+                customMsg = e.message
+            } catch (e: Exception) {
+                customMsgError = true
+                customMsg = e.message ?: "Có lỗi xảy ra"
+            } finally {
+                withContext(Dispatchers.IO) { reloadCustoms() }
+                customBusy = false
+            }
+        }
+    }
+
+    private fun readUri(uri: Uri, limit: Int = 25 * 1024 * 1024): ByteArray {
+        val input = app.contentResolver.openInputStream(uri) ?: throw CustomException("Không mở được tệp đã chọn")
+        input.use { s ->
+            val out = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(32 * 1024)
+            while (true) {
+                val n = s.read(buf)
+                if (n < 0) break
+                out.write(buf, 0, n)
+                if (out.size() > limit) throw CustomException("Tệp quá lớn")
+            }
+            return out.toByteArray()
+        }
+    }
+
+    fun applyBoard(id: String) = updateSettings(settings.copy(boardId = id))
+
+    fun applyPieces(id: String) = updateSettings(settings.copy(pieceId = id))
+
+    /** Thêm bàn cờ từ ảnh trong máy rồi áp dụng ngay: màu cả ứng dụng đổi theo màu chủ đạo của ảnh. */
+    fun addBoardFromUri(uri: Uri, name: String) = customTask("Đã thêm và áp dụng bàn cờ mới") {
+        val b = customs.addBoard(readUri(uri), name)
+        post { applyBoard("c:" + b.id) }
+    }
+
+    fun addBoardFromUrl(url: String, name: String) = customTask("Đã tải ảnh và áp dụng bàn cờ mới") {
+        val b = customs.addBoard(customs.download(url), name.ifBlank { url.substringAfterLast('/').substringBefore('?').substringBeforeLast('.') })
+        post { applyBoard("c:" + b.id) }
+    }
+
+    fun deleteCustomBoard(id: String) {
+        if (settings.boardId == "c:$id") applyBoard("lacquer")
+        forgetBoardPhoto("c:$id")
+        customTask("Đã xóa bàn cờ") { customs.deleteBoard(id) }
+    }
+
+    private fun looksLikeZip(b: ByteArray) = b.size > 4 && b[0] == 0x50.toByte() && b[1] == 0x4B.toByte()
+
+    private fun importPiecesBytes(bytes: ByteArray, name: String) {
+        val set = if (looksLikeZip(bytes)) customs.addPiecesZip(bytes, name) else customs.addPiecesJson(String(bytes, Charsets.UTF_8), name)
+        post { applyPieces("c:" + set.id) }
+    }
+
+    fun addPiecesFromText(text: String, name: String) = customTask("Đã thêm và áp dụng bộ quân mới") {
+        importPiecesBytes(text.toByteArray(Charsets.UTF_8), name)
+    }
+
+    fun addPiecesFromUri(uri: Uri, name: String) = customTask("Đã thêm và áp dụng bộ quân mới") {
+        importPiecesBytes(readUri(uri, 12 * 1024 * 1024), name)
+    }
+
+    fun addPiecesFromUrl(url: String, name: String) = customTask("Đã tải và áp dụng bộ quân mới") {
+        importPiecesBytes(customs.download(url, 12 * 1024 * 1024), name)
+    }
+
+    // ------------------------------------------------------------------ sao lưu Google Drive
+    var backupBusy by mutableStateOf(false)
+        private set
+    var backupMsg by mutableStateOf<String?>(null)
+        private set
+    var backupError by mutableStateOf(false)
+        private set
+    /** Màn hình xin quyền của Google cần mở (giao diện mở rồi gọi [onDriveConsent]). */
+    var driveConsent by mutableStateOf<PendingIntent?>(null)
+        private set
+    private var lastBackup by mutableLongStateOf(store.lastBackup)
+    private var driveOp = DriveOp.BACKUP
+
+    val lastBackupText: String
+        get() = if (lastBackup <= 0L) "" else "Lần sao lưu gần nhất: " +
+            java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", com.customchess.ui.Lang.locale).format(java.util.Date(lastBackup))
+
+    private fun maybeAutoBackup() {
+        if (settings.autoBackup && user?.isMember == true) startDrive(DriveOp.BACKUP, silent = true)
+    }
+
+    /** Sao lưu hoặc khôi phục qua Google Drive. [silent]: chạy ngầm, không hỏi quyền và không báo lỗi. */
+    fun startDrive(op: DriveOp, silent: Boolean = false) {
+        if (backupBusy) return
+        backupBusy = true
+        if (!silent) { backupMsg = null; backupError = false }
+        driveOp = op
+        viewModelScope.launch {
+            var waiting = false
+            try {
+                val email = user?.takeIf { it.kind == UserKind.GOOGLE }?.email
+                when (val a = DriveBackup.authorize(app, email)) {
+                    is DriveAuth.Token -> runDrive(op, a.value)
+                    is DriveAuth.NeedsConsent -> if (!silent) { driveConsent = a.pending; waiting = true }
+                }
+            } catch (e: Exception) {
+                reportDriveError(e, silent)
+            } finally {
+                if (!waiting) backupBusy = false
+            }
+        }
+    }
+
+    /** Kết quả của màn hình xin quyền (null = người dùng đóng). */
+    fun onDriveConsent(data: Intent?) {
+        driveConsent = null
+        if (data == null) {
+            backupBusy = false
+            backupError = true
+            backupMsg = "Đã hủy, chưa cấp quyền Drive"
+            return
+        }
+        viewModelScope.launch {
+            try {
+                runDrive(driveOp, DriveBackup.tokenFromIntent(app, data))
+            } catch (e: Exception) {
+                reportDriveError(e, false)
+            } finally {
+                backupBusy = false
+            }
+        }
+    }
+
+    private suspend fun runDrive(op: DriveOp, token: String) {
+        when (op) {
+            DriveOp.BACKUP -> {
+                val meta = mapOf(
+                    "progress.json" to progress.toJson().toByteArray(Charsets.UTF_8),
+                    "appearance.json" to JSONObject().put("board", settings.boardId).put("pieces", settings.pieceId).toString().toByteArray(Charsets.UTF_8),
+                )
+                val bytes = withContext(Dispatchers.IO) { customs.exportZip(meta) }
+                val id = withContext(Dispatchers.IO) { DriveBackup.upload(token, bytes, DriveBackup.findId(token)) }
+                store.backupFileId = id
+                lastBackup = System.currentTimeMillis()
+                store.lastBackup = lastBackup
+                backupError = false
+                backupMsg = "Đã sao lưu ${maxOf(1, bytes.size / 1024)} KB lên Google Drive"
+            }
+            DriveOp.RESTORE -> {
+                val data = withContext(Dispatchers.IO) { DriveBackup.findId(token)?.let { DriveBackup.download(token, it) } }
+                if (data == null) {
+                    backupError = true
+                    backupMsg = "Chưa có bản sao lưu nào trên tài khoản này"
+                    return
+                }
+                val meta = withContext(Dispatchers.IO) { customs.restoreZip(data) }
+                if (meta == null) {
+                    backupError = true
+                    backupMsg = "Bản sao lưu không hợp lệ"
+                    return
+                }
+                PieceStyleCache.styles.clear()
+                forgetBoardPhoto("c:")
+                reloadCustoms()
+                meta["progress.json"]?.let { raw ->
+                    val restored = Progress.fromJson(String(raw, Charsets.UTF_8))
+                    fun weight(p: Progress) = p.solved + p.failed + p.played
+                    if (weight(restored) >= weight(progress)) { progress = restored; store.progressJson = restored.toJson() }
+                }
+                meta["appearance.json"]?.let { raw ->
+                    runCatching {
+                        val j = JSONObject(String(raw, Charsets.UTF_8))
+                        val b = j.optString("board", settings.boardId)
+                        val pc = j.optString("pieces", settings.pieceId)
+                        val boardOk = !b.startsWith("c:") || customBoards.any { "c:" + it.id == b }
+                        val pieceOk = !pc.startsWith("c:") || customPieces.any { "c:" + it.id == pc }
+                        updateSettings(settings.copy(boardId = if (boardOk) b else settings.boardId, pieceId = if (pieceOk) pc else settings.pieceId))
+                    }
+                }
+                backupError = false
+                backupMsg = "Đã khôi phục ${customBoards.size} bàn cờ, ${customPieces.size} bộ quân"
+            }
+        }
+    }
+
+    private fun reportDriveError(e: Exception, silent: Boolean) {
+        if (silent) return
+        backupError = true
+        backupMsg = when (e) {
+            is DriveException -> e.message
+            is com.google.android.gms.common.api.ApiException -> when (e.statusCode) {
+                10 -> "Google chưa cho phép ứng dụng này dùng Drive (lỗi 10). Cần bật Google Drive API và thêm phạm vi drive.appdata trong Google Cloud."
+                7 -> "Không có mạng để kết nối Google"
+                else -> "Google từ chối (mã ${e.statusCode}). Kiểm tra đã bật Google Drive API cho dự án."
+            }
+            is java.io.IOException -> "Không kết nối được mạng"
+            else -> e.message ?: "Có lỗi khi sao lưu"
+        }
+    }
+
+    fun deleteCustomPieces(id: String) {
+        if (settings.pieceId == "c:$id") applyPieces("lacquer")
+        PieceStyleCache.styles.remove(id)
+        customTask("Đã xóa bộ quân") { customs.deletePieces(id) }
+    }
 
     // ------------------------------------------------------------------ điều hướng & tài khoản
     val stack = mutableStateListOf<Screen>()
@@ -83,6 +399,8 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     init {
         stack.add(if (user == null) Screen.LOGIN else Screen.HOME)
+        applySound(settings)
+        com.customchess.ui.Lang.apply(app, settings.language)
     }
 
     fun go(s: Screen) {
@@ -93,6 +411,15 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         if (stack.size <= 1) return
         val popped = stack.removeAt(stack.size - 1)
         onLeave(popped)
+    }
+
+    /** Chuyển tab gốc: xóa ngăn xếp màn hình con. */
+    fun selectTab(s: Screen) {
+        if (stack.size == 1 && stack[0] == s) return
+        val old = stack.toList()
+        stack.clear()
+        stack.add(s)
+        old.forEach { onLeave(it) }
     }
 
     fun goHome() {
@@ -186,6 +513,32 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun updateSettings(s: Settings) {
         settings = s
         store.saveSettings(s)
+        applySound(s)
+        com.customchess.ui.Lang.apply(app, s.language)
+    }
+
+    // ------------------------------------------------------------------ ngôn ngữ
+    fun setLanguage(code: String) = updateSettings(settings.copy(language = code))
+
+    /** Nhập file ngôn ngữ người dùng tự dịch; thành công thì dùng ngay nếu đang chọn đúng ngôn ngữ đó. */
+    fun importLanguage(text: String): com.customchess.ui.Lang.ImportResult {
+        val r = com.customchess.ui.Lang.importText(app, text)
+        if (r.ok) {
+            updateSettings(settings.copy(language = r.code))
+            com.customchess.ui.Lang.apply(app, r.code, force = true)
+        }
+        return r
+    }
+
+    fun deleteLanguage(code: String) {
+        com.customchess.ui.Lang.delete(app, code)
+        if (settings.language == code) setLanguage(com.customchess.ui.Lang.AUTO)
+        else com.customchess.ui.Lang.apply(app, settings.language, force = true)
+    }
+
+    private fun applySound(s: Settings) {
+        Sfx.enabled = s.sound
+        Sfx.volume = s.volume / 100f
     }
 
     // ------------------------------------------------------------------ thiết lập AI qua API
@@ -268,6 +621,10 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     private var aiJob: Job? = null
     private var clockJob: Job? = null
     private var forceEngineOnce = false
+    private var gameSaved = false
+    private var curBot: Bot? = null
+    private var lastBotClock: TimePreset? = null
+    private var evalJob: Job? = null
 
     private fun post(block: () -> Unit) {
         viewModelScope.launch { block() }
@@ -277,7 +634,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         val p = game.position
         val res = game.result()
         val check = if (p.inCheck()) p.kingSquare(p.whiteToMove) else -1
-        val editable = mode == Mode.ENGINE || mode == Mode.API || mode == Mode.LOCAL
+        val editable = (mode == Mode.ENGINE || mode == Mode.API || mode == Mode.LOCAL || mode == Mode.BOT) && settings.allowTakeback
         ui = ui.copy(
             board = p.board.copyOf(),
             whiteToMove = p.whiteToMove,
@@ -294,7 +651,45 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         if (res != null) {
             aiJob?.cancel()
             ui = ui.copy(thinking = false, drawOffered = false)
+            onGameEnded(res)
         }
+    }
+
+    /** Lưu ván vào lịch sử, cập nhật tiến độ và phát âm thanh kết thúc (chỉ một lần cho mỗi ván). */
+    private fun onGameEnded(res: GameResult) {
+        if (gameSaved || !ui.active) return
+        gameSaved = true
+        val mine = ui.myWhite
+        val iWon: Boolean? = if (mine == null) null else res.winnerWhite?.let { it == mine }
+        if (game.moves.size >= 2) {
+            val sg = SavedGame(
+                id = java.util.UUID.randomUUID().toString().take(8), time = System.currentTimeMillis(),
+                mode = modeLabel(mode), white = ui.whiteName, black = ui.blackName, whiteSub = ui.whiteSub, blackSub = ui.blackSub,
+                myWhite = mine, winnerWhite = res.winnerWhite, reason = res.reason.name,
+                startFen = game.startFen, moves = game.moves.map { it.uci() },
+            )
+            history.add(0, sg)
+            while (history.size > HistoryStore.MAX) history.removeAt(history.size - 1)
+            val snapshot = history.toList()
+            io { historyStore.save(snapshot) }
+            if (mine != null) updateProgress { it.afterGame(iWon, curBot?.id.takeIf { mode == Mode.BOT }) }
+            else updateProgress { it.touch() }
+        }
+        Sfx.play(when {
+            res.winnerWhite == null -> Snd.DRAW
+            mine == null || iWon == true -> Snd.WIN
+            else -> Snd.LOSE
+        })
+        evalJob?.cancel()
+    }
+
+    private fun modeLabel(m: Mode) = when (m) {
+        Mode.ENGINE -> "Chơi với máy"
+        Mode.API -> "Chơi với AI"
+        Mode.LOCAL -> "Cùng một máy"
+        Mode.LINK -> "Bạn bè"
+        Mode.LICHESS -> "Lichess"
+        Mode.BOT -> "Bot"
     }
 
     private fun beginGame(
@@ -320,9 +715,13 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         whiteMs = if (timed) clockMs[0] else -1L
         blackMs = if (timed) clockMs[1] else -1L
         forceEngineOnce = false
+        gameSaved = false
+        evalJob?.cancel()
+        if (newMode != Mode.BOT) curBot = null
         ui = GameUi(
             active = true,
             mode = newMode,
+            botId = curBot?.id.orEmpty().takeIf { newMode == Mode.BOT } ?: "",
             flipped = white == false,
             myWhite = white,
             whiteName = whiteName,
@@ -334,6 +733,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         refresh()
         if (screen != Screen.GAME) stack.add(Screen.GAME)
         if (timed || newMode == Mode.LICHESS) startClockTicker()
+        if (newMode != Mode.LICHESS) updateEval()
         maybeAiMove()
     }
 
@@ -342,6 +742,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         val wasMode = mode
         val wasActive = ui.active
         aiJob?.cancel()
+        closeAnalysis()
         clockJob?.cancel()
         if (wasMode == Mode.LINK) closeLink()
         if (wasMode == Mode.LICHESS) {
@@ -355,7 +756,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         blackMs = -1L
         if (silent || !wasActive) return
         if (screen == Screen.GAME) {
-            if (wasMode == Mode.ENGINE || wasMode == Mode.API || wasMode == Mode.LOCAL) back() else goHome()
+            if (wasMode == Mode.ENGINE || wasMode == Mode.API || wasMode == Mode.LOCAL || wasMode == Mode.BOT) back() else goHome()
         }
     }
 
@@ -386,6 +787,20 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    /** Đấu một bot (offline). [clock] null hoặc không giới hạn = không tính giờ. */
+    fun startBotGame(bot: Bot, white: Boolean?, clock: TimePreset? = null) {
+        val w = white ?: Random.nextBoolean()
+        curBot = bot
+        lastBotClock = clock
+        val label = "${bot.emoji} ${bot.name}"
+        beginGame(
+            Mode.BOT, w,
+            whiteName = if (w) me else label, blackName = if (w) label else me,
+            whiteSub = if (w) "" else "~${bot.rating}", blackSub = if (w) "~${bot.rating}" else "",
+            clock = clock,
+        )
+    }
+
     private var lastLocalClock = TIME_PRESETS[0]
 
     fun startLocalGame(clock: TimePreset) {
@@ -399,6 +814,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             Mode.ENGINE -> startEngineGame(settings.engineLevel, !(myWhite ?: true))
             Mode.API -> startApiGame(!(myWhite ?: true))
             Mode.LOCAL -> startLocalGame(lastLocalClock)
+            Mode.BOT -> curBot?.let { startBotGame(it, !(myWhite ?: true), lastBotClock) }
             else -> Unit
         }
     }
@@ -432,6 +848,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         val piece = p.board[from]
         val lastRank = if (p.whiteToMove) 7 else 0
         if (abs(piece) == Pc.PAWN && rankOf(to) == lastRank) {
+            if (settings.autoQueen) { commitMove(Move(from, to, Pc.QUEEN), byMe = true); return }
             ui = ui.copy(promotion = from to to, targets = emptySet())
             return
         }
@@ -449,17 +866,33 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     private fun commitMove(m: Move, byMe: Boolean) {
+        closeAnalysis()
         val mover = game.position.whiteToMove
+        val before = game.position
+        val movedPiece = abs(before.board[m.from])
+        val capture = before.isCapture(m)
         if (!game.play(m)) {
             refresh()
             return
         }
-        if (clockOn && (mode == Mode.LOCAL || mode == Mode.LINK)) {
+        if (clockOn && (mode == Mode.LOCAL || mode == Mode.LINK || mode == Mode.BOT)) {
             val i = if (mover) 0 else 1
             clockMs[i] += clockInc[i] * 1000L
             publishClocks()
         }
-        refresh { copy(moveTick = moveTick + 1, notice = null, drawOffered = false) }
+        refresh { copy(moveTick = moveTick + 1, notice = null, drawOffered = false, lastCapture = capture, evalCp = if (settings.evalBar) evalCp else null) }
+        if (ui.result == null) {
+            Sfx.play(when {
+                ui.checkSquare >= 0 -> Snd.CHECK
+                m.promo != 0 -> Snd.PROMOTE
+                movedPiece == Pc.KING && abs((m.to and 7) - (m.from and 7)) == 2 -> Snd.CASTLE
+                capture -> Snd.CAPTURE
+                else -> Snd.MOVE
+            })
+            updateEval()
+        } else {
+            Sfx.play(if (capture) Snd.CAPTURE else Snd.MOVE)
+        }
         if (byMe) {
             when (mode) {
                 Mode.LINK -> link?.send(Msg.Move(m.uci()))
@@ -481,6 +914,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun undo() {
         if (!ui.canUndo) return
         aiJob?.cancel()
+        closeAnalysis()
         val n = when {
             mode == Mode.LOCAL -> 1
             game.position.whiteToMove == myWhite -> 2
@@ -489,13 +923,29 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         repeat(minOf(n, game.moves.size)) { game.undo() }
         ui = ui.copy(thinking = false, aiError = null)
         refresh()
+        updateEval()
         maybeAiMove()
+    }
+
+    /** Tính điểm đánh giá nền cho thanh đánh giá (chỉ khi bật trong Cài đặt). */
+    private fun updateEval() {
+        evalJob?.cancel()
+        if (!settings.evalBar || !ui.active || ui.result != null) {
+            if (ui.evalCp != null && !settings.evalBar) ui = ui.copy(evalCp = null)
+            return
+        }
+        val pos = game.position
+        val ply = game.moves.size
+        evalJob = viewModelScope.launch {
+            val a = withContext(Dispatchers.Default) { Engine(3).analyze(pos, 3, 700) { !isActive } }
+            if (ui.active && game.moves.size == ply) ui = ui.copy(evalCp = a.scoreWhite)
+        }
     }
 
     fun resign() {
         if (ui.result != null) return
         when (mode) {
-            Mode.ENGINE, Mode.API -> finish(GameResult(!(myWhite ?: true), Reason.RESIGNATION))
+            Mode.ENGINE, Mode.API, Mode.BOT -> finish(GameResult(!(myWhite ?: true), Reason.RESIGNATION))
             Mode.LOCAL -> finish(GameResult(!game.position.whiteToMove, Reason.RESIGNATION))
             Mode.LINK -> {
                 link?.send(Msg.Resign)
@@ -514,7 +964,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun offerDraw() {
         if (ui.result != null || ui.drawSent) return
         when (mode) {
-            Mode.ENGINE, Mode.API -> {
+            Mode.ENGINE, Mode.API, Mode.BOT -> {
                 val aiWhite = !(myWhite ?: true)
                 val eval = Engine.evaluate(game.position).let { if (aiWhite) it else -it }
                 if (eval <= 60) finish(GameResult(null, Reason.AGREEMENT))
@@ -547,6 +997,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         game.forcedResult = r
         aiJob?.cancel()
         ui = ui.copy(result = r, thinking = false, selected = -1, targets = emptySet(), drawOffered = false, promotion = null, canUndo = false)
+        onGameEnded(r)
     }
 
     // ------------------------------------------------------------------ đồng hồ
@@ -582,7 +1033,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun onFlag(whiteFlagged: Boolean) {
         when (mode) {
-            Mode.LOCAL -> finish(GameResult(!whiteFlagged, Reason.TIMEOUT))
+            Mode.LOCAL, Mode.BOT -> finish(GameResult(!whiteFlagged, Reason.TIMEOUT))
             Mode.LINK -> if (myWhite == whiteFlagged) {
                 link?.send(Msg.Timeout)
                 finish(GameResult(!whiteFlagged, Reason.TIMEOUT))
@@ -591,10 +1042,80 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+
+    // ------------------------------------------------------------------ phân tích nước cờ trong ván
+    /** Kết quả phân tích thế cờ hiện tại. [ply] là số nước đã đi lúc phân tích, để bỏ kết quả cũ khi thế cờ đã đổi. */
+    data class AnalysisUi(
+        val ply: Int,
+        val lines: List<CoachLine> = emptyList(),
+        val engineBusy: Boolean = true,
+        val aiText: String? = null,
+        val aiBusy: Boolean = false,
+        val aiError: String? = null,
+    )
+
+    var analysis by mutableStateOf<AnalysisUi?>(null)
+        private set
+    private var analysisJob: Job? = null
+
+    /**
+     * Có được phân tích lúc này không. Ván online (Lichess) và ván với bạn bè đang diễn ra thì không (tránh gian lận);
+     * kết thúc rồi thì phân tích được mọi ván.
+     */
+    fun analysisAllowed(): Boolean {
+        if (!settings.analysis || !ui.active) return false
+        if (ui.result != null) return true
+        return mode == Mode.ENGINE || mode == Mode.API || mode == Mode.BOT || mode == Mode.LOCAL
+    }
+
+    fun openAnalysis() {
+        if (!analysisAllowed()) return
+        analysisJob?.cancel()
+        val pos = game.position
+        val ply = game.moves.size
+        analysis = AnalysisUi(ply)
+        analysisJob = viewModelScope.launch {
+            val lines = withContext(Dispatchers.Default) { Coach.topMoves(pos, 3, 4, 5000) { !isActive } }
+            if (analysis?.ply == ply) analysis = AnalysisUi(ply, lines, engineBusy = false)
+        }
+    }
+
+    fun closeAnalysis() {
+        analysisJob?.cancel()
+        analysisJob = null
+        if (analysis != null) analysis = null
+    }
+
+    /** Nhờ AI giải thích (chỉ khi người dùng bấm, vì mỗi lần là một lần gọi API tính phí/hạn mức). */
+    fun askAiAnalysis() {
+        val a = analysis ?: return
+        if (a.aiBusy || a.engineBusy || a.lines.isEmpty() || !settings.analysisAi) return
+        val cfg = store.config(settings.provider)
+        if (!cfg.ready) { go(Screen.AI_SETTINGS); return }
+        val pos = game.position
+        val movetext = game.movetext()
+        val lastSan = ui.sans.lastOrNull()
+        val ply = a.ply
+        analysis = a.copy(aiBusy = true, aiError = null)
+        viewModelScope.launch {
+            try {
+                val text = AiClient.explain(cfg, pos, movetext, a.lines, lastSan, aiAnswerLanguage())
+                if (analysis?.ply == ply) analysis = analysis?.copy(aiText = text, aiBusy = false)
+            } catch (e: AiException) {
+                if (analysis?.ply == ply) analysis = analysis?.copy(aiBusy = false, aiError = e.message ?: "Lỗi không rõ")
+            }
+        }
+    }
+
+    /** Tên tiếng Anh của ngôn ngữ mà AI cần trả lời. */
+    private fun aiAnswerLanguage(): String = com.customchess.ui.Lang.english
+
     // ------------------------------------------------------------------ AI (engine nội bộ hoặc API)
     private fun maybeAiMove() {
-        if (mode != Mode.ENGINE && mode != Mode.API) return
+        if (mode != Mode.ENGINE && mode != Mode.API && mode != Mode.BOT) return
         if (ui.result != null) return
+        val bot = if (mode == Mode.BOT) curBot else null
+        if (mode == Mode.BOT && bot == null) return
         val pos = game.position
         if (pos.whiteToMove == myWhite) return
         aiJob?.cancel()
@@ -610,7 +1131,9 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             val t0 = SystemClock.elapsedRealtime()
             var move: Move? = null
             var error: String? = null
-            if (useApi) {
+            if (bot != null) {
+                move = withContext(Dispatchers.Default) { BotBrain.choose(bot, pos, history, ply) { !isActive } }
+            } else if (useApi) {
                 try {
                     move = AiClient.chooseMove(store.config(settings.provider), pos, movetext).move
                 } catch (e: AiException) {
@@ -805,13 +1328,13 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             is Msg.Hello -> {
                 peerName = m.name
                 if (linkIsHost && !(ui.active && mode == Mode.LINK)) {
-                    val hostWhite = when (lobbyColor) { 0 -> true; 1 -> false; else -> Random.nextBoolean() }
+                    val hostWhite = com.customchess.net.Sides.hostIsWhite(lobbyColor) { Random.nextBoolean() }
                     val tp = TIME_PRESETS.getOrElse(lobbyTime) { TIME_PRESETS[0] }
-                    link?.send(Msg.Start(guestIsWhite = !hostWhite, baseSec = tp.baseSec, incSec = tp.incSec))
+                    link?.send(com.customchess.net.Sides.startFor(hostWhite, tp.baseSec, tp.incSec))
                     startLinkGame(hostWhite, tp)
                 }
             }
-            is Msg.Start -> if (!linkIsHost) startLinkGame(!m.guestIsWhite, TimePreset("", m.baseSec, m.incSec))
+            is Msg.Start -> if (!linkIsHost) startLinkGame(com.customchess.net.Sides.guestIsWhite(m), TimePreset("", m.baseSec, m.incSec))
             is Msg.Move -> {
                 if (mode != Mode.LINK || !ui.active || ui.result != null) return
                 val mv = game.position.parseMove(m.uci)
