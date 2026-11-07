@@ -79,6 +79,11 @@ object Lobby {
         return "$lo-$hi"
     }
 
+    private val USERNAME = Regex("^[A-Za-z0-9][A-Za-z0-9_-]{1,19}$")
+
+    /** Tên tài khoản Lichess hợp lệ (2 đến 20 ký tự chữ, số, gạch dưới, gạch nối; bắt đầu bằng chữ hoặc số). */
+    fun validUsername(name: String): Boolean = USERNAME.matches(name.trim())
+
     /** Thời gian còn lại cho một nước của ván cờ qua thư, ví dụ "2 ngày 3 giờ" hoặc "5 giờ". */
     fun leftText(seconds: Int): String {
         if (seconds <= 0) return ""

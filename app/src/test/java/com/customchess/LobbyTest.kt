@@ -83,6 +83,12 @@ class LobbyTest {
     }
 
     @Test
+    fun usernameValidation() {
+        for (ok in listOf("thibault", "Ab", "a_b-c", "User123", " padded ")) assertTrue(ok, Lobby.validUsername(ok))
+        for (bad in listOf("", "a", "_abc", "-abc", "has space", "dấu", "a".repeat(21), "x/y")) assertFalse(bad, Lobby.validUsername(bad))
+    }
+
+    @Test
     fun intOrFallsBack() {
         assertEquals(7, Lobby.intOr(" 7 ", 1))
         assertEquals(1, Lobby.intOr("", 1))

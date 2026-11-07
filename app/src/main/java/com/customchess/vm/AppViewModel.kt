@@ -1487,7 +1487,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             Msg.DrawAccept -> if (ui.active && mode == Mode.LINK) finish(GameResult(null, Reason.AGREEMENT))
             Msg.DrawDecline -> if (ui.active && mode == Mode.LINK) ui = ui.copy(drawSent = false, notice = "Bạn bè từ chối hòa")
             Msg.Timeout -> if (ui.active && mode == Mode.LINK) finish(GameResult(myWhite, Reason.TIMEOUT))
-            is Msg.Chat, is Msg.Unknown -> Unit
+            is Msg.Chat, is Msg.Unknown, is Msg.Challenge, Msg.Decline -> Unit
         }
     }
 

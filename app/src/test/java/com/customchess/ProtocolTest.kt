@@ -25,6 +25,7 @@ class ProtocolTest {
         val all = listOf(
             Msg.Hello("Minh Anh"), Msg.Start(true, 300, 2), Msg.Start(false, 0, 0), Msg.Move("e2e4"), Msg.Move("e7e8q"),
             Msg.Resign, Msg.DrawOffer, Msg.DrawAccept, Msg.DrawDecline, Msg.Timeout, Msg.Chat("xin chào"),
+            Msg.Challenge(0, 600, 5), Msg.Challenge(1, 0, 0), Msg.Challenge(2, 180, 2), Msg.Decline,
         )
         for (m in all) assertEquals(m, Protocol.parse(Protocol.encode(m)))
     }
@@ -35,6 +36,21 @@ class ProtocolTest {
         assertTrue(Protocol.parse("START x 1 1") is Msg.Unknown)
         assertTrue(Protocol.parse("HELLO abc") is Msg.Unknown)
         assertTrue(Protocol.parse("BLAH") is Msg.Unknown)
+        assertTrue(Protocol.parse("CHALLENGE 3 60 0") is Msg.Unknown) // màu ngoài 0..2
+        assertTrue(Protocol.parse("CHALLENGE 0 -5 0") is Msg.Unknown)
+        assertTrue(Protocol.parse("CHALLENGE 0 60") is Msg.Unknown)
+        assertTrue(Protocol.parse("CHALLENGE x 60 0") is Msg.Unknown)
+        assertTrue(Protocol.parse("CHALLENGE 0 99999 0") is Msg.Unknown)
+    }
+
+    @Test fun announceListeningFlag() {
+        val room = Announce.parse(Announce.encode("An", 8765), "10.0.0.2")!!
+        assertEquals(false, room.listening)
+        val listener = Announce.parse(Announce.encode("Bình", 8767, listening = true), "10.0.0.3")!!
+        assertEquals(true, listener.listening)
+        assertEquals(8767, listener.port)
+        assertEquals("Bình", listener.name)
+        assertEquals("CUSTOMCHESS|1|Bình|8767|L", Announce.encode("Bình", 8767, true))
     }
 
     @Test fun helloKeepsSpacesAndStripsNewlines() {
