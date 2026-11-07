@@ -101,7 +101,7 @@ fun InviteCard(inv: Invite, vm: AppViewModel, modifier: Modifier = Modifier, onL
         if (!inv.canAccept && inv.note.isNotEmpty()) Text2(inv.note, Type.Small.copy(color = Pal.Alert), Modifier.padding(top = 6.dp))
         Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (onLater != null) SmallAction("Để sau", Pal.EggDim, Modifier.weight(1f), onLater)
+            if (onLater != null) SmallAction("Để sau", Pal.EggDim, Modifier.weight(1f), onClick = onLater)
             SmallAction("Từ chối", Pal.Alert, Modifier.weight(1f)) { vm.declineInvite(inv) }
             SmallAction("Chấp nhận", Pal.Gold, Modifier.weight(1.3f), enabled = inv.canAccept) { vm.acceptInvite(inv) }
         }
