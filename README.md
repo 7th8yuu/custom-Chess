@@ -32,6 +32,16 @@
 
 Chess.com chỉ có API đọc dữ liệu công khai (hồ sơ, ván đã chơi), **không cho ứng dụng ngoài đi quân hay ghép trận**. Vì vậy phần đấu online dùng Lichess, nơi cho phép ứng dụng bên thứ ba chơi miễn phí.
 
+## Sảnh Lichess
+
+Màn Đấu online (sau khi kết nối Lichess) có ba thẻ, cùng lựa chọn Giao hữu hoặc Xếp hạng:
+
+- **Xếp cặp nhanh**: lưới thời gian như sảnh Lichess (Bullet, Blitz, Rapid, Classical); chạm một ô là bắt đầu tìm đối thủ.
+- **Phòng chờ**: tự chọn số phút, giây cộng thêm, màu quân và khoảng điểm đối thủ, rồi tạo phòng.
+- **Cờ qua thư**: đăng yêu cầu 1, 2, 3, 5, 7, 10 hoặc 14 ngày mỗi nước. Ván nằm ở Lichess, đóng ứng dụng vẫn được; mở lại từ mục "Ván đang chơi" (thoát ra không bị tính bỏ cuộc).
+
+Giới hạn do Lichess đặt cho ứng dụng bên ngoài (Board API): ghép trận ngẫu nhiên và tạo phòng chỉ từ Rapid trở lên (thời gian ước tính = phút x 60 + giây cộng thêm x 40, từ 480 giây); Blitz chỉ chơi được khi thách đấu trực tiếp một người; Bullet không hỗ trợ. Lichess cũng không có API xem danh sách phòng của người khác.
+
 ## Trong ván cờ
 
 Các công tắc nằm ở Cài đặt, nhóm "Ván cờ":

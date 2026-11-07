@@ -34,6 +34,45 @@ fun parseProfile(json: String): LichessProfile {
     return LichessProfile(name, listOf(rating("blitz"), rating("rapid"), rating("classical")))
 }
 
+/** Một ván đang diễn ra của tài khoản (từ /api/account/playing hoặc sự kiện gameStart). */
+data class OngoingGame(
+    val id: String,
+    /** Màu của mình trong ván; null nếu không rõ. */
+    val white: Boolean?,
+    val opponent: String,
+    val opponentRating: Int,
+    /** bullet, blitz, rapid, classical, correspondence... */
+    val speed: String,
+    val rated: Boolean,
+    val isMyTurn: Boolean,
+    /** Số giây còn lại cho nước đang đến lượt (cờ qua thư); 0 nếu không có. */
+    val secondsLeft: Int,
+) {
+    val correspondence: Boolean get() = speed == "correspondence"
+}
+
+private fun JSONObject.text(key: String): String = if (isNull(key)) "" else optString(key)
+
+/** Đọc một ván từ sự kiện gameStart hoặc một phần tử của nowPlaying; null nếu thiếu mã ván. */
+fun parseOngoing(o: JSONObject): OngoingGame? {
+    val id = o.text("gameId").ifEmpty { o.text("id") }
+    if (id.isEmpty()) return null
+    val opp = o.optJSONObject("opponent")
+    val name = if (opp == null) "Ẩn danh" else opp.text("username").ifEmpty { opp.text("id") }.ifEmpty { "Ẩn danh" }
+    val color = when (o.text("color")) { "white" -> true; "black" -> false; else -> null }
+    val speed = o.text("speed").ifEmpty { o.text("perf") }
+    return OngoingGame(
+        id = id, white = color, opponent = name, opponentRating = opp?.optInt("rating", 0) ?: 0,
+        speed = speed, rated = o.optBoolean("rated", false),
+        isMyTurn = o.optBoolean("isMyTurn", false), secondsLeft = o.optInt("secondsLeft", 0),
+    )
+}
+
+fun parseOngoingList(json: String): List<OngoingGame> {
+    val arr = JSONObject(json).optJSONArray("nowPlaying") ?: return emptyList()
+    return (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let(::parseOngoing) }
+}
+
 /**
  * Ghép trận online qua Lichess Board API (miễn phí, dành cho ứng dụng bên thứ ba).
  * Chess.com không có API để chơi từ ứng dụng ngoài, nên Lichess là lựa chọn thay thế.
@@ -79,19 +118,49 @@ class LichessClient(private val token: String) {
     fun streamGame(gameId: String, onEvent: (JSONObject) -> Unit, onEnd: (Throwable?) -> Unit): Cancelable =
         stream(req("/api/board/game/stream/$gameId").get().build(), onEvent, onEnd)
 
+    /** Các ván đang chơi (kể cả cờ qua thư). */
+    fun ongoing(): List<OngoingGame> {
+        http.newCall(req("/api/account/playing").get().build()).execute().use { r ->
+            if (!r.isSuccessful) throw fail(r)
+            return parseOngoingList(r.body?.string().orEmpty())
+        }
+    }
+
+    private fun seekForm(rated: Boolean, color: String, ratingRange: String?): FormBody.Builder {
+        val b = FormBody.Builder()
+            .add("rated", rated.toString())
+            .add("variant", "standard")
+            .add("color", color)
+        if (!ratingRange.isNullOrBlank()) b.add("ratingRange", ratingRange)
+        return b
+    }
+
     /**
      * Tạo yêu cầu tìm đối thủ. Phải giữ kết nối mở cho tới khi có người nhận;
-     * hủy [Cancelable] để thôi tìm.
+     * hủy [Cancelable] để thôi tìm. [color] là random, white hoặc black; [ratingRange] dạng "1500-1800" hoặc null.
      */
-    fun seek(minutes: Int, increment: Int, rated: Boolean, onEnd: (Throwable?) -> Unit): Cancelable {
-        val body = FormBody.Builder()
-            .add("rated", rated.toString())
+    fun seek(
+        minutes: Int, increment: Int, rated: Boolean,
+        color: String = "random", ratingRange: String? = null,
+        onEnd: (Throwable?) -> Unit,
+    ): Cancelable {
+        val body = seekForm(rated, color, ratingRange)
             .add("time", minutes.toString())
             .add("increment", increment.toString())
-            .add("variant", "standard")
-            .add("color", "random")
             .build()
         return stream(req("/api/board/seek").post(body).build(), { }, onEnd)
+    }
+
+    /**
+     * Đăng yêu cầu cờ qua thư ([days] ngày mỗi nước). Khác ghép trận thời gian thực: Lichess trả về ngay và
+     * giữ yêu cầu cho tới khi có người nhận, không cần giữ kết nối. Trả về mã yêu cầu.
+     */
+    fun seekCorrespondence(days: Int, rated: Boolean, color: String = "random", ratingRange: String? = null): String {
+        val body = seekForm(rated, color, ratingRange).add("days", days.toString()).build()
+        http.newCall(req("/api/board/seek").post(body).build()).execute().use { r ->
+            if (!r.isSuccessful) throw fail(r)
+            return try { JSONObject(r.body?.string().orEmpty()).optString("id") } catch (_: org.json.JSONException) { "" }
+        }
     }
 
     fun move(gameId: String, uci: String) = post("/api/board/game/$gameId/move/$uci")

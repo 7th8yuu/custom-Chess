@@ -347,7 +347,7 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
     SideEffect { marks.style = markStyle }
 
     BackHandler {
-        if (ui.result == null && ui.plyCount > 0 && !ui.disconnected) leaveAsk = true else vm.leaveGame()
+        if (ui.result == null && ui.plyCount > 0 && !ui.disconnected && !ui.corr) leaveAsk = true else vm.leaveGame()
     }
     LaunchedEffect(ui.moveTick) {
         if (ui.moveTick > 0 && vm.settings.haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -374,7 +374,7 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
         Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp),
     ) {
         ScreenHeader(modeTitle(ui.mode), onBack = {
-            if (ui.result == null && ui.plyCount > 0 && !ui.disconnected) leaveAsk = true else vm.leaveGame()
+            if (ui.result == null && ui.plyCount > 0 && !ui.disconnected && !ui.corr) leaveAsk = true else vm.leaveGame()
         })
         PlayerSide(vm, topWhite)
         val evalCp = ui.evalCp

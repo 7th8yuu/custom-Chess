@@ -26,6 +26,7 @@ import com.customchess.core.Coach
 import com.customchess.core.CoachLine
 import com.customchess.core.Engine
 import com.customchess.core.Game
+import com.customchess.core.Lobby
 import com.customchess.core.GameResult
 import com.customchess.core.Move
 import com.customchess.core.Pc
@@ -62,6 +63,8 @@ import com.customchess.net.Lan
 import com.customchess.net.LanHost
 import com.customchess.net.LichessClient
 import com.customchess.net.LichessException
+import com.customchess.net.OngoingGame
+import com.customchess.net.parseOngoing
 import com.customchess.net.Msg
 import com.customchess.net.StreamLink
 import com.customchess.ui.PieceStyleCache
@@ -764,6 +767,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         blackSub: String = "",
         clock: TimePreset? = null,
         startFen: String = START_FEN,
+        noClock: Boolean = false,
     ) {
         aiJob?.cancel()
         clockJob?.cancel()
@@ -791,11 +795,12 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             blackName = blackName,
             whiteSub = whiteSub,
             blackSub = blackSub,
-            timed = timed || newMode == Mode.LICHESS,
+            timed = (timed || newMode == Mode.LICHESS) && !noClock,
+            corr = noClock && newMode == Mode.LICHESS,
         )
         refresh()
         if (screen != Screen.GAME) stack.add(Screen.GAME)
-        if (timed || newMode == Mode.LICHESS) startClockTicker()
+        if ((timed || newMode == Mode.LICHESS) && !noClock) startClockTicker()
         if (newMode != Mode.LICHESS) updateEval()
         maybeAiMove()
     }
@@ -804,22 +809,25 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun leaveGame(silent: Boolean = false) {
         val wasMode = mode
         val wasActive = ui.active
+        val wasCorr = wasMode == Mode.LICHESS && lichessCorr
         aiJob?.cancel()
         closeAnalysis()
         clockJob?.cancel()
         if (wasMode == Mode.LINK) closeLink()
         if (wasMode == Mode.LICHESS) {
-            lichessGameId?.let { id -> if (ui.result == null) io { runCatching { lichessClient?.let { c -> if (game.moves.size < 2) c.abort(id) else c.resign(id) } } } }
+            // ván cờ qua thư: thoát ra chỉ là rời màn hình, ván vẫn còn ở Lichess
+            if (!lichessCorr) lichessGameId?.let { id -> if (ui.result == null) io { runCatching { lichessClient?.let { c -> if (game.moves.size < 2) c.abort(id) else c.resign(id) } } } }
             gameStream?.cancel()
             gameStream = null
             lichessGameId = null
+            if (lichessCorr) { lichessCorr = false; refreshOngoing() }
         }
         ui = GameUi()
         whiteMs = -1L
         blackMs = -1L
         if (silent || !wasActive) return
         if (screen == Screen.GAME) {
-            if (wasMode == Mode.ENGINE || wasMode == Mode.API || wasMode == Mode.LOCAL || wasMode == Mode.BOT) back() else goHome()
+            if (wasMode == Mode.ENGINE || wasMode == Mode.API || wasMode == Mode.LOCAL || wasMode == Mode.BOT || wasCorr) back() else goHome()
         }
     }
 
@@ -1503,6 +1511,8 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     private var seekCall: Cancelable? = null
     private var gameStream: Cancelable? = null
     private var lichessGameId: String? = null
+    private var lichessCorr = false
+    private var corrSeekPending = false
 
     private fun io(block: () -> Unit) {
         Thread { block() }.apply { isDaemon = true }.start()
@@ -1545,6 +1555,20 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun enterOnline() {
         if (!canPlayOnline) return
         if (store.lichessToken.isNotBlank() && eventStream == null) openEventStream(LichessClient(store.lichessToken))
+        refreshOngoing()
+    }
+
+    /** Tải lại danh sách ván đang chơi (kể cả cờ qua thư) từ Lichess. */
+    fun refreshOngoing() {
+        val client = lichessClient ?: store.lichessToken.takeIf { it.isNotBlank() }?.let { LichessClient(it) } ?: return
+        io {
+            try {
+                val list = client.ongoing()
+                post { lichessUi = lichessUi.copy(ongoing = list) }
+            } catch (e: LichessException) {
+                if (e.code == 401) post { lichessSessionExpired() }
+            } catch (_: Exception) { }
+        }
     }
 
     /**
@@ -1636,6 +1660,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         if (!keepLogin) {
             gameStream?.cancel(); gameStream = null
             lichessGameId = null
+            lichessCorr = false
             lichessClient = null
             store.lichessToken = ""
             store.lichessName = ""
@@ -1660,17 +1685,48 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         )
     }
 
-    fun seekLichess(preset: TimePreset, rated: Boolean) {
+    /** Ghép trận thời gian thực. [color] là random, white hoặc black; [ratingRange] dạng "1500-1800" hoặc null. */
+    fun seekLichess(minutes: Int, increment: Int, rated: Boolean, color: String = "random", ratingRange: String? = null) {
         val client = lichessClient ?: return
         if (lichessUi.searching) return
+        Lobby.checkClock(minutes, increment)?.let { lichessUi = lichessUi.copy(error = it); return }
         if (eventStream == null) openEventStream(client)
-        lichessUi = lichessUi.copy(searching = true, error = null)
-        seekCall = client.seek(preset.baseSec / 60, preset.incSec, rated) { err ->
+        lichessUi = lichessUi.copy(
+            searching = true, error = null, info = null,
+            searchLabel = "${Lobby.label(minutes, increment)} · ${if (rated) "Xếp hạng" else "Giao hữu"}",
+        )
+        seekCall = client.seek(minutes, increment, rated, color, ratingRange) { err ->
             post {
                 if (err != null) lichessUi = lichessUi.copy(searching = false, error = err.message ?: "Không tìm được đối thủ")
                 else if (lichessGameId == null) lichessUi = lichessUi.copy(searching = false)
             }
         }
+    }
+
+    /** Đăng yêu cầu cờ qua thư; Lichess giữ yêu cầu cho tới khi có người nhận, không cần ở lại màn hình. */
+    fun seekCorrespondence(days: Int, rated: Boolean, color: String = "random", ratingRange: String? = null) {
+        val client = lichessClient ?: return
+        if (lichessUi.busy) return
+        if (eventStream == null) openEventStream(client)
+        lichessUi = lichessUi.copy(busy = true, error = null, info = null)
+        io {
+            try {
+                client.seekCorrespondence(days, rated, color, ratingRange)
+                post {
+                    corrSeekPending = true
+                    lichessUi = lichessUi.copy(
+                        busy = false,
+                        info = "Đã đăng yêu cầu cờ qua thư, $days ngày mỗi nước. Khi có người nhận, ván hiện ở mục Ván đang chơi.",
+                    )
+                }
+            } catch (e: Exception) {
+                post { lichessUi = lichessUi.copy(busy = false, error = e.message ?: "Không đăng được yêu cầu") }
+            }
+        }
+    }
+
+    fun setLobbyError(text: String?) {
+        lichessUi = lichessUi.copy(error = text, info = null)
     }
 
     fun cancelSeek() {
@@ -1680,15 +1736,45 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     private fun onLichessEvent(e: JSONObject) {
-        if (e.optString("type") != "gameStart") return
-        val g = e.optJSONObject("game") ?: return
-        val id = g.optString("gameId").ifEmpty { g.optString("id") }
-        if (id.isEmpty() || id == lichessGameId) return
-        val white = when (g.optString("color")) { "white" -> true; "black" -> false; else -> null }
-        lichessGameId = id
-        seekCall?.cancel(); seekCall = null
-        lichessUi = lichessUi.copy(searching = false)
+        when (e.optString("type")) {
+            "gameStart" -> {
+                val g = e.optJSONObject("game") ?: return
+                val og = parseOngoing(g) ?: return
+                if (og.correspondence) {
+                    // cờ qua thư không tự mở (khi mở luồng, Lichess gửi lại mọi ván đang chơi): đưa vào danh sách
+                    val fresh = lichessUi.ongoing.none { it.id == og.id }
+                    lichessUi = lichessUi.copy(
+                        ongoing = lichessUi.ongoing.filter { it.id != og.id } + og,
+                        info = if (fresh && corrSeekPending) "${og.opponent} đã nhận ván cờ qua thư của bạn" else lichessUi.info,
+                    )
+                    if (fresh) corrSeekPending = false
+                    return
+                }
+                if (og.id == lichessGameId) return
+                seekCall?.cancel(); seekCall = null
+                lichessUi = lichessUi.copy(searching = false)
+                startLichessGame(og.id, og.white, corr = false)
+            }
+            "gameFinish" -> {
+                val id = e.optJSONObject("game")?.let { parseOngoing(it)?.id } ?: return
+                lichessUi = lichessUi.copy(ongoing = lichessUi.ongoing.filter { it.id != id })
+            }
+        }
+    }
+
+    /** Mở lại một ván đang chơi (thường là cờ qua thư) từ danh sách. */
+    fun openOngoing(g: OngoingGame) {
+        if (g.id == lichessGameId && ui.active) {
+            if (screen != Screen.GAME) stack.add(Screen.GAME)
+            return
+        }
+        startLichessGame(g.id, g.white, g.correspondence)
+    }
+
+    private fun startLichessGame(id: String, white: Boolean?, corr: Boolean) {
         val client = lichessClient ?: return
+        lichessGameId = id
+        lichessCorr = corr
         gameStream?.cancel()
         gameStream = client.streamGame(
             id,
@@ -1717,10 +1803,11 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
                 val iAmWhite = colorHint
                     ?: (w?.optString("id")?.lowercase() == meLower || w?.optString("name")?.lowercase() == meLower)
                 val fen = e.optString("initialFen").let { if (it.isBlank() || it == "startpos") START_FEN else it }
+                if (e.optString("speed") == "correspondence") lichessCorr = true
                 beginGame(
                     Mode.LICHESS, iAmWhite,
                     whiteName = label(w), blackName = label(b), whiteSub = rating(w), blackSub = rating(b),
-                    startFen = fen,
+                    startFen = fen, noClock = lichessCorr,
                 )
                 e.optJSONObject("state")?.let { applyLichessState(it) }
             }
@@ -1738,10 +1825,12 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             if (!game.play(mv)) break
             changed = true
         }
-        clockMs[0] = s.optLong("wtime", clockMs[0])
-        clockMs[1] = s.optLong("btime", clockMs[1])
-        lastTick = SystemClock.elapsedRealtime()
-        publishClocks()
+        if (!lichessCorr) {
+            clockMs[0] = s.optLong("wtime", clockMs[0])
+            clockMs[1] = s.optLong("btime", clockMs[1])
+            lastTick = SystemClock.elapsedRealtime()
+            publishClocks()
+        }
         if (changed) {
             refresh { copy(moveTick = moveTick + 1, notice = null) }
             if (ui.result == null) runPremove()
