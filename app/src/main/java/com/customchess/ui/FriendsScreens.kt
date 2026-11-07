@@ -24,8 +24,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.customchess.net.Bt
 import com.customchess.net.Lan
+import com.customchess.net.LanHost
 import com.customchess.vm.AppViewModel
 import com.customchess.vm.Screen
 import com.customchess.vm.TIME_PRESETS
@@ -50,7 +53,7 @@ import com.customchess.vm.TIME_PRESETS
 @Composable
 fun FriendsScreen(vm: AppViewModel) {
     Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp)) {
-        ScreenHeader("Chơi với bạn bè", vm::back)
+        ScreenHeader("Chơi với bạn bè", vm::back, trailing = { InviteEntry(vm) })
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Text2("Một người mở phòng, người kia vào phòng. Không cần Internet.", Type.Small)
             SectionTitle("Wi-Fi")
@@ -138,6 +141,7 @@ fun WifiHostScreen(vm: AppViewModel) {
 @Composable
 fun WifiJoinScreen(vm: AppViewModel) {
     var manual by remember { mutableStateOf("") }
+    var target by remember { mutableStateOf<LanHost?>(null) }
     LaunchedEffect(Unit) { vm.startWifiScan() }
     Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp)) {
         ScreenHeader("Vào phòng Wi-Fi", vm::back)
@@ -148,7 +152,12 @@ fun WifiJoinScreen(vm: AppViewModel) {
             }
             for (h in vm.lanHosts) {
                 Spacer(Modifier.height(8.dp))
-                ChoiceRow(h.name, "${h.address}:${h.port}", false, { vm.connectWifi(h.address, h.port) }, trailing = "Vào")
+                if (h.listening) ChoiceRow(h.name, "Đang nhận thách đấu · ${h.address}", false, { target = h }, trailing = "Thách")
+                else ChoiceRow(h.name, "${h.address}:${h.port}", false, { vm.connectWifi(h.address, h.port) }, trailing = "Vào")
+            }
+            if (vm.lobbyBusy) {
+                Waiting("Đang chờ bạn bè trả lời...")
+                GhostButton("Hủy", { vm.cancelWifiChallenge() }, Modifier.fillMaxWidth())
             }
             SectionTitle("Nhập địa chỉ thủ công")
             OutlinedTextField(
@@ -162,6 +171,29 @@ fun WifiJoinScreen(vm: AppViewModel) {
             ErrorText(vm.lobbyError)
             Spacer(Modifier.height(24.dp))
         }
+    }
+    target?.let { h ->
+        AlertDialog(
+            onDismissRequest = { target = null },
+            containerColor = Pal.Panel,
+            title = { Text2("Thách ${h.name}", Type.Title) },
+            text = {
+                Column {
+                    Text2("Bạn cầm quân", Type.Small, Modifier.padding(bottom = 6.dp))
+                    ColorPills(vm.lobbyColor) { vm.lobbyColor = it }
+                    Text2("Đồng hồ", Type.Small, Modifier.padding(top = 14.dp, bottom = 6.dp))
+                    TimePills(vm.lobbyTime) { vm.lobbyTime = it }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val tp = TIME_PRESETS.getOrElse(vm.lobbyTime) { TIME_PRESETS[0] }
+                    vm.challengeWifi(h, vm.lobbyColor, tp.baseSec, tp.incSec)
+                    target = null
+                }) { Text2("Gửi lời thách", Type.Button.copy(color = Pal.Gold)) }
+            },
+            dismissButton = { TextButton(onClick = { target = null }) { Text2("Hủy", Type.Button.copy(color = Pal.EggDim)) } },
+        )
     }
 }
 

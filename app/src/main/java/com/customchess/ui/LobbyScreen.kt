@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,7 +40,7 @@ import com.customchess.vm.AppViewModel
 private fun colorName(i: Int) = when (i) { 0 -> "white"; 1 -> "black"; else -> "random" }
 
 /** Tên loại ván theo cách Lichess gọi. */
-private fun speedName(s: String) = when (s) {
+internal fun speedName(s: String) = when (s) {
     "correspondence" -> "Cờ qua thư"
     "ultraBullet", "bullet" -> "Bullet"
     "blitz" -> "Blitz"
@@ -92,7 +93,7 @@ fun LichessLobby(vm: AppViewModel) {
 
     Spacer(Modifier.height(16.dp))
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        val names = listOf("Xếp cặp nhanh", "Phòng chờ", "Cờ qua thư")
+        val names = listOf("Xếp cặp nhanh", "Phòng chờ", "Cờ qua thư", "Thách đấu")
         items(names.size) { i -> Pill(names[i], tab == i, { tab = i; vm.showOnlineError(null) }) }
     }
     Spacer(Modifier.height(12.dp))
@@ -106,7 +107,8 @@ fun LichessLobby(vm: AppViewModel) {
             when (t) {
                 0 -> QuickPairing(vm, rated)
                 1 -> RoomTab(vm, rated)
-                else -> CorrespondenceTab(vm, rated)
+                2 -> CorrespondenceTab(vm, rated)
+                else -> ChallengeTab(vm, rated)
             }
         }
     }
@@ -170,8 +172,8 @@ private fun QuickPairing(vm: AppViewModel, rated: Boolean) {
 }
 
 @Composable
-private fun TimeTileBox(t: TimeTile, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    GlassBox(modifier.alpha(if (enabled) 1f else 0.4f), RoundedCornerShape(18.dp), onClick = onClick, enabled = enabled) {
+private fun TimeTileBox(t: TimeTile, enabled: Boolean, modifier: Modifier, selected: Boolean = false, onClick: () -> Unit) {
+    GlassBox(modifier.alpha(if (enabled) 1f else 0.4f), RoundedCornerShape(18.dp), selected = selected, onClick = onClick, enabled = enabled) {
         Column(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text2(t.label, Type.Title)
             Text2(t.speed.label, Type.Small)
@@ -269,4 +271,71 @@ private fun CorrespondenceTab(vm: AppViewModel, rated: Boolean) {
         val range = try { Lobby.ratingRange(lo, hi) } catch (e: IllegalArgumentException) { vm.showOnlineError(e.message); return@PrimaryButton }
         vm.seekCorrespondence(days, rated, colorName(color), range)
     }, enabled = !vm.lichessUi.busy)
+}
+
+// ---------------------------------------------------------------------------------- thách đấu một người
+
+@Composable
+private fun ChallengeTab(vm: AppViewModel, rated: Boolean) {
+    var name by remember { mutableStateOf("") }
+    var corr by remember { mutableStateOf(false) }
+    val tiles = remember { Lobby.TILES.filter { Lobby.challengeAllowed(it.speed) } }
+    var tile by remember { mutableIntStateOf(tiles.indexOfFirst { it.minutes == 10 && it.increment == 5 }.coerceAtLeast(0)) }
+    var days by remember { mutableIntStateOf(3) }
+    var color by remember { mutableIntStateOf(2) }
+
+    Text2("Thách một người cụ thể bằng tên tài khoản Lichess. Họ nhận lời mời trên Lichess (và trong Custom Chess nếu họ dùng), ván tự mở khi họ nhận.", Type.Small)
+    Spacer(Modifier.height(12.dp))
+    OutlinedTextField(
+        value = name, onValueChange = { name = it.filter { c -> c.isLetterOrDigit() || c == '_' || c == '-' }.take(20) },
+        modifier = Modifier.fillMaxWidth(), singleLine = true,
+        label = { Text2("Tên tài khoản Lichess", Type.Small) },
+        colors = fieldColors(),
+    )
+    Spacer(Modifier.height(12.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Pill("Thời gian thực", !corr, { corr = false })
+        Pill("Cờ qua thư", corr, { corr = true })
+    }
+    Spacer(Modifier.height(12.dp))
+    if (!corr) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            tiles.chunked(3).forEachIndexed { r, row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEachIndexed { c, t -> TimeTileBox(t, true, Modifier.weight(1f), selected = tile == r * 3 + c) { tile = r * 3 + c } }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+        Text2("Thách trực tiếp chơi được từ Blitz trở lên.", Type.Small, Modifier.padding(top = 8.dp))
+    } else {
+        Text2("Số ngày mỗi nước", Type.Small, Modifier.padding(bottom = 6.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(Lobby.CORRESPONDENCE_DAYS.size) { k ->
+                val d = Lobby.CORRESPONDENCE_DAYS[k]
+                Pill("$d", days == d, { days = d })
+            }
+        }
+    }
+    Text2("Màu quân của bạn", Type.Small, Modifier.padding(top = 14.dp, bottom = 6.dp))
+    ColorPills(color) { color = it }
+    Spacer(Modifier.height(16.dp))
+    PrimaryButton(if (vm.lichessUi.busy) "Đang gửi..." else "Gửi lời thách", {
+        val t = tiles.getOrNull(tile) ?: tiles.first()
+        if (corr) vm.sendChallenge(name, rated, 0, 0, days, colorName(color))
+        else vm.sendChallenge(name, rated, t.minutes, t.increment, 0, colorName(color))
+    }, enabled = !vm.lichessUi.busy && name.length >= 2)
+    if (vm.sentInvites.isNotEmpty()) {
+        Text2("Đang chờ trả lời", Type.Small.copy(color = Pal.Gold), Modifier.padding(top = 16.dp, bottom = 6.dp))
+        vm.sentInvites.toList().forEach { s ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text2(s.to, Type.Heading)
+                    Text2("${s.clock} · ${if (s.rated) "Xếp hạng" else "Giao hữu"}", Type.Small)
+                }
+                GhostButton("Hủy", { vm.cancelSentInvite(s) }, Modifier.width(88.dp))
+            }
+        }
+    }
+    vm.inviteNote?.let { Text2(it, Type.Small.copy(color = Pal.Alert), Modifier.padding(top = 10.dp)) }
 }

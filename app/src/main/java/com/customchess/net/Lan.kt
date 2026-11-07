@@ -16,6 +16,8 @@ import kotlin.concurrent.thread
 object Lan {
     const val PORT = 8765
     const val DISCOVERY_PORT = 8766
+    /** Cổng của máy đang nhận lời thách đấu (khác cổng phòng mở để hai chế độ không tranh nhau). */
+    const val LISTEN_PORT = 8767
 
     /** Địa chỉ IPv4 của máy này trên các mạng đang bật (Wi-Fi, điểm phát sóng...). */
     fun localAddresses(): List<String> {
@@ -93,6 +95,64 @@ object Lan {
                                 try { ds.send(DatagramPacket(data, data.size, target, DISCOVERY_PORT)) } catch (_: Exception) { }
                             }
                             Thread.sleep(1000)
+                        }
+                    }
+                } catch (_: Exception) { }
+            }
+        }
+
+        fun stop() {
+            running = false
+            try { server?.close() } catch (_: Exception) { }
+        }
+    }
+
+    /**
+     * Máy "nhận lời thách đấu": giữ cổng mở, phát tín hiệu LAN (kèm cờ L) và nhận nhiều kết nối nối tiếp nhau.
+     * Khác [Host] (chỉ nhận đúng một kết nối rồi đóng).
+     */
+    class Listener(
+        private val name: () -> String,
+        private val port: Int = LISTEN_PORT,
+        private val onConnection: (StreamLink, String) -> Unit,
+        private val onError: (String) -> Unit,
+    ) {
+        @Volatile private var server: ServerSocket? = null
+        @Volatile private var running = false
+
+        fun start() {
+            if (running) return
+            running = true
+            thread(isDaemon = true, name = "wifi-listen") {
+                try {
+                    val s = ServerSocket()
+                    s.reuseAddress = true
+                    s.bind(InetSocketAddress(port))
+                    server = s
+                    announce()
+                    while (running) {
+                        val sock = s.accept()
+                        sock.tcpNoDelay = true
+                        val link = StreamLink(sock.getInputStream(), sock.getOutputStream()) { sock.close() }
+                        onConnection(link, sock.inetAddress?.hostAddress.orEmpty())
+                    }
+                } catch (e: Exception) {
+                    if (running) onError(e.message ?: "Lỗi mạng")
+                }
+            }
+        }
+
+        private fun announce() {
+            thread(isDaemon = true, name = "wifi-listen-announce") {
+                try {
+                    DatagramSocket().use { ds ->
+                        ds.broadcast = true
+                        while (running) {
+                            val data = Announce.encode(name(), port, listening = true).toByteArray(Charsets.UTF_8)
+                            for (target in broadcastTargets()) {
+                                try { ds.send(DatagramPacket(data, data.size, target, DISCOVERY_PORT)) } catch (_: Exception) { }
+                            }
+                            Thread.sleep(2000)
                         }
                     }
                 } catch (_: Exception) { }

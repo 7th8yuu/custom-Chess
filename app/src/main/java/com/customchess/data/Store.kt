@@ -75,6 +75,10 @@ data class Settings(
     val premove: Boolean = false,
     /** Nút Đầu hàng thu nhỏ thành biểu tượng cờ trắng. */
     val compactResign: Boolean = true,
+    /** Giữ luồng sự kiện Lichess mở khi dùng ứng dụng để hiện lời thách đấu ngay. */
+    val lichessChallenges: Boolean = true,
+    /** Bật cổng nhận lời thách đấu qua Wi-Fi và phát tín hiệu để máy cùng mạng thấy mình. */
+    val wifiChallenges: Boolean = false,
     /** Hiện nút Đi/Hủy sau khi chọn nước để tránh lỡ tay. */
     val confirmMove: Boolean = false,
     /** Kiểu nét vẽ dạng JSON (xem [MarkStyle]); rỗng = mặc định. */
@@ -169,6 +173,8 @@ class Store(context: Context) {
             drawing = b("s.draw", d.drawing),
             premove = b("s.premove", d.premove),
             compactResign = b("s.compactresign", d.compactResign),
+            lichessChallenges = b("s.lcchal", d.lichessChallenges),
+            wifiChallenges = b("s.wifichal", d.wifiChallenges),
             confirmMove = b("s.confirm", d.confirmMove),
             markStyle = sp.getString("s.markstyle", d.markStyle) ?: d.markStyle,
             puzzleHints = b("s.phints", d.puzzleHints),
@@ -220,6 +226,8 @@ class Store(context: Context) {
             .putBoolean("s.draw", s.drawing)
             .putBoolean("s.premove", s.premove)
             .putBoolean("s.compactresign", s.compactResign)
+            .putBoolean("s.lcchal", s.lichessChallenges)
+            .putBoolean("s.wifichal", s.wifiChallenges)
             .putBoolean("s.confirm", s.confirmMove)
             .putString("s.markstyle", s.markStyle)
             .putBoolean("s.phints", s.puzzleHints)

@@ -47,7 +47,7 @@ fun OnlineScreen(vm: AppViewModel) {
     LaunchedEffect(Unit) { vm.enterOnline() }
 
     Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp)) {
-        ScreenHeader("Đấu online", vm::back)
+        ScreenHeader("Đấu online", vm::back, trailing = { InviteEntry(vm) })
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             if (!vm.canPlayOnline) {
                 // khách: mở khóa bằng cách đăng nhập

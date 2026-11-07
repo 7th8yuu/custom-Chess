@@ -94,6 +94,29 @@ data class GameUi(
     val premove: Move? = null,
 )
 
+enum class InviteSource { LICHESS, WIFI }
+
+/** Lời thách đấu gửi tới mình, từ Lichess hoặc từ một máy cùng mạng Wi-Fi. */
+data class Invite(
+    val id: String,
+    val source: InviteSource,
+    val from: String,
+    val rating: Int = 0,
+    /** Thời gian đã định dạng: "10 + 0", "3 ngày" hoặc "Không giới hạn". */
+    val clock: String,
+    /** Rapid, Blitz...; rỗng nếu không rõ. */
+    val speed: String = "",
+    val rated: Boolean = false,
+    /** Màu người thách muốn cầm: white, black hoặc random. */
+    val color: String = "random",
+    val canAccept: Boolean = true,
+    /** Lý do không nhận được, nếu có. */
+    val note: String = "",
+)
+
+/** Lời thách mình đã gửi trên Lichess, đang chờ trả lời. */
+data class SentInvite(val id: String, val to: String, val clock: String, val rated: Boolean)
+
 data class LichessUi(
     val connected: Boolean = false,
     val name: String = "",

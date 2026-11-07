@@ -42,6 +42,12 @@ Màn Đấu online (sau khi kết nối Lichess) có ba thẻ, cùng lựa chọ
 
 Giới hạn do Lichess đặt cho ứng dụng bên ngoài (Board API): ghép trận ngẫu nhiên và tạo phòng chỉ từ Rapid trở lên (thời gian ước tính = phút x 60 + giây cộng thêm x 40, từ 480 giây); Blitz chỉ chơi được khi thách đấu trực tiếp một người; Bullet không hỗ trợ. Lichess cũng không có API xem danh sách phòng của người khác.
 
+## Thách đấu
+
+- **Thư mời**: nút phong bì (có chấm số) ở màn Đấu online và Chơi với bạn bè mở hộp thư gom mọi lời thách gửi tới bạn. Khi có người thách, một thẻ nổi hiện ở đầu màn hình với nút Chấp nhận, Từ chối hoặc Để sau (ẩn khi bạn đang trong ván).
+- **Lichess**: thẻ "Thách đấu" trong sảnh gửi lời thách tới một tên tài khoản (thời gian thực từ Blitz trở lên, hoặc cờ qua thư). Công tắc "Nhận lời thách đấu Lichess" (Cài đặt, mặc định bật) giữ kết nối nền để nhận popup ngay cả khi không ở màn Đấu online; ván bắt đầu ở nơi khác (trang web) không bị tự bật lên trong ứng dụng.
+- **Wi-Fi**: bật "Nhận lời thách đấu qua Wi-Fi" (Cài đặt, mặc định tắt) thì máy mở cổng 8767 và phát tên trong mạng. Máy khác vào "Vào phòng Wi-Fi" sẽ thấy dòng "Đang nhận thách đấu", bấm Thách, chọn màu và đồng hồ. Người nhận thấy popup; chấp nhận thì ván bắt đầu, từ chối hoặc đang trong ván thì người thách được báo ngay.
+
 ## Trong ván cờ
 
 Các công tắc nằm ở Cài đặt, nhóm "Ván cờ":

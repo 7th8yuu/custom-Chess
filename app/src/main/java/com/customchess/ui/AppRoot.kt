@@ -96,6 +96,7 @@ fun AppRoot(vm: AppViewModel) {
         Box(Modifier.fillMaxSize()) {
             AppBackdrop(theme)
             ScreenHost(vm, theme)
+            InvitePopup(vm, Modifier.align(Alignment.TopCenter))
             val showNav = vm.stack.size == 1 && vm.screen in TAB_SCREENS
             AnimatedVisibility(
                 visible = showNav,

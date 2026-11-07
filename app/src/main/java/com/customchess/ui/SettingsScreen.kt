@@ -213,6 +213,11 @@ fun SettingsScreen(vm: AppViewModel) {
                 SettingSwitch("Giữ màn hình sáng", "Khi đang chơi, giải câu đố hoặc xem lại ván", s.keepScreenOn) { set { copy(keepScreenOn = it) } }
             }
 
+            Group("Thách đấu") {
+                SettingSwitch("Nhận lời thách đấu Lichess", "Giữ kết nối nền với Lichess khi dùng ứng dụng để hiện popup ngay khi có người thách. Tắt thì chỉ nhận khi đang ở màn Đấu online", s.lichessChallenges) { set { copy(lichessChallenges = it) } }
+                SettingSwitch("Nhận lời thách đấu qua Wi-Fi", "Mở một cổng trong mạng Wi-Fi hiện tại và phát tên bạn để bạn bè dùng ứng dụng thấy, bấm Thách. Chỉ bật khi tin tưởng mạng đang dùng", s.wifiChallenges) { set { copy(wifiChallenges = it) } }
+            }
+
             Group("Câu đố") {
                 SettingSwitch("Cho phép gợi ý", "Hiện nút Gợi ý khi giải câu đố (dùng gợi ý thì không tính điểm)", s.puzzleHints) { set { copy(puzzleHints = it) } }
                 SettingSwitch("Tự sang câu kế tiếp", "Sau khi giải đúng", s.puzzleAutoNext) { set { copy(puzzleAutoNext = it) } }
