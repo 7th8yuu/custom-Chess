@@ -93,7 +93,7 @@ fun LichessLobby(vm: AppViewModel) {
     Spacer(Modifier.height(16.dp))
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         val names = listOf("Xếp cặp nhanh", "Phòng chờ", "Cờ qua thư")
-        items(names.size) { i -> Pill(names[i], tab == i, { tab = i; vm.setLobbyError(null) }) }
+        items(names.size) { i -> Pill(names[i], tab == i, { tab = i; vm.showOnlineError(null) }) }
     }
     Spacer(Modifier.height(12.dp))
 
@@ -239,7 +239,7 @@ private fun RoomTab(vm: AppViewModel, rated: Boolean) {
     SeekOptions(color, { color = it }, lo, { lo = it }, hi, { hi = it })
     Spacer(Modifier.height(16.dp))
     PrimaryButton("Tạo phòng", {
-        val range = try { Lobby.ratingRange(lo, hi) } catch (e: IllegalArgumentException) { vm.setLobbyError(e.message); return@PrimaryButton }
+        val range = try { Lobby.ratingRange(lo, hi) } catch (e: IllegalArgumentException) { vm.showOnlineError(e.message); return@PrimaryButton }
         vm.seekLichess(m, i, rated, colorName(color), range)
     }, enabled = allowed)
     Spacer(Modifier.height(8.dp))
@@ -266,7 +266,7 @@ private fun CorrespondenceTab(vm: AppViewModel, rated: Boolean) {
     SeekOptions(color, { color = it }, lo, { lo = it }, hi, { hi = it })
     Spacer(Modifier.height(16.dp))
     PrimaryButton(if (vm.lichessUi.busy) "Đang đăng..." else "Đăng yêu cầu", {
-        val range = try { Lobby.ratingRange(lo, hi) } catch (e: IllegalArgumentException) { vm.setLobbyError(e.message); return@PrimaryButton }
+        val range = try { Lobby.ratingRange(lo, hi) } catch (e: IllegalArgumentException) { vm.showOnlineError(e.message); return@PrimaryButton }
         vm.seekCorrespondence(days, rated, colorName(color), range)
     }, enabled = !vm.lichessUi.busy)
 }

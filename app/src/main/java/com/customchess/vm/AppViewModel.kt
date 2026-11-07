@@ -1725,7 +1725,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setLobbyError(text: String?) {
+    fun showOnlineError(text: String?) {
         lichessUi = lichessUi.copy(error = text, info = null)
     }
 
