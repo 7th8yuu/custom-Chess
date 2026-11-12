@@ -206,7 +206,16 @@ fun SettingsScreen(vm: AppViewModel) {
                 SettingSwitch("Thanh đánh giá thế cờ", "Engine chấm điểm thế cờ khi đang chơi (tốn pin hơn)", s.evalBar) { set { copy(evalBar = it) } }
                 SettingSwitch("Phân tích nước cờ trong ván", "Nút Phân tích: engine chỉ ra các nước tốt nhất. Chỉ hiện khi chơi với máy, bot, AI hoặc cùng một máy, còn ván online và với bạn bè thì sau khi kết thúc", s.analysis) { set { copy(analysis = it) } }
                 SettingSwitch("AI giải thích khi phân tích", "Gửi thế cờ cho AI (Gemini mặc định) để giải thích bằng lời. Cần API key, tắt thì chỉ dùng engine offline", s.analysisAi, enabled = s.analysis) { set { copy(analysisAi = it) } }
+                SettingSwitch("Nút đầu hàng gọn", "Thu nút Đầu hàng thành biểu tượng cờ nhỏ ở cuối hàng nút để khó bấm nhầm. Tắt để dùng nút chữ như cũ", s.compactResign) { set { copy(compactResign = it) } }
+                SettingSwitch("Đi trước (premove)", "Chọn nước đi ngay khi chưa tới lượt: ván tự đi khi đối thủ vừa đi xong nếu nước đó còn hợp lệ. Chạm lại để hủy. Không dùng khi chơi chung một máy", s.premove) { set { copy(premove = it) } }
+                SettingSwitch("Xác nhận nước đi", "Sau khi chọn nước, hiện nút Đi và Hủy trước khi đi thật để tránh lỡ tay. Không áp dụng cho câu đố", s.confirmMove) { set { copy(confirmMove = it) } }
+                SettingSwitch("Vẽ trên bàn cờ", "Vẽ mũi tên và tô ô như chess.com: giữ ngón tay rồi kéo, hoặc bật nút Vẽ dưới bàn cờ. Dùng được trong ván và khi xem lại", s.drawing) { set { copy(drawing = it) } }
                 SettingSwitch("Giữ màn hình sáng", "Khi đang chơi, giải câu đố hoặc xem lại ván", s.keepScreenOn) { set { copy(keepScreenOn = it) } }
+            }
+
+            Group("Thách đấu") {
+                SettingSwitch("Nhận lời thách đấu Lichess", "Giữ kết nối nền với Lichess khi dùng ứng dụng để hiện popup ngay khi có người thách. Tắt thì chỉ nhận khi đang ở màn Đấu online", s.lichessChallenges) { set { copy(lichessChallenges = it) } }
+                SettingSwitch("Nhận lời thách đấu qua Wi-Fi", "Mở một cổng trong mạng Wi-Fi hiện tại và phát tên bạn để bạn bè dùng ứng dụng thấy, bấm Thách. Chỉ bật khi tin tưởng mạng đang dùng", s.wifiChallenges) { set { copy(wifiChallenges = it) } }
             }
 
             Group("Câu đố") {

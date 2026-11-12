@@ -32,6 +32,53 @@
 
 Chess.com chỉ có API đọc dữ liệu công khai (hồ sơ, ván đã chơi), **không cho ứng dụng ngoài đi quân hay ghép trận**. Vì vậy phần đấu online dùng Lichess, nơi cho phép ứng dụng bên thứ ba chơi miễn phí.
 
+## Sảnh Lichess
+
+Màn Đấu online (sau khi kết nối Lichess) có ba thẻ, cùng lựa chọn Giao hữu hoặc Xếp hạng:
+
+- **Xếp cặp nhanh**: lưới thời gian như sảnh Lichess (Bullet, Blitz, Rapid, Classical); chạm một ô là bắt đầu tìm đối thủ.
+- **Phòng chờ**: tự chọn số phút, giây cộng thêm, màu quân và khoảng điểm đối thủ, rồi tạo phòng.
+- **Cờ qua thư**: đăng yêu cầu 1, 2, 3, 5, 7, 10 hoặc 14 ngày mỗi nước. Ván nằm ở Lichess, đóng ứng dụng vẫn được; mở lại từ mục "Ván đang chơi" (thoát ra không bị tính bỏ cuộc).
+
+Giới hạn do Lichess đặt cho ứng dụng bên ngoài (Board API): ghép trận ngẫu nhiên và tạo phòng chỉ từ Rapid trở lên (thời gian ước tính = phút x 60 + giây cộng thêm x 40, từ 480 giây); Blitz chỉ chơi được khi thách đấu trực tiếp một người; Bullet không hỗ trợ. Lichess cũng không có API xem danh sách phòng của người khác.
+
+## Thách đấu
+
+- **Thư mời**: nút phong bì (có chấm số) ở màn Đấu online và Chơi với bạn bè mở hộp thư gom mọi lời thách gửi tới bạn. Khi có người thách, một thẻ nổi hiện ở đầu màn hình với nút Chấp nhận, Từ chối hoặc Để sau (ẩn khi bạn đang trong ván).
+- **Lichess**: thẻ "Thách đấu" trong sảnh gửi lời thách tới một tên tài khoản (thời gian thực từ Blitz trở lên, hoặc cờ qua thư). Công tắc "Nhận lời thách đấu Lichess" (Cài đặt, mặc định bật) giữ kết nối nền để nhận popup ngay cả khi không ở màn Đấu online; ván bắt đầu ở nơi khác (trang web) không bị tự bật lên trong ứng dụng.
+- **Wi-Fi**: bật "Nhận lời thách đấu qua Wi-Fi" (Cài đặt, mặc định tắt) thì máy mở cổng 8767 và phát tên trong mạng. Máy khác vào "Vào phòng Wi-Fi" sẽ thấy dòng "Đang nhận thách đấu", bấm Thách, chọn màu và đồng hồ. Người nhận thấy popup; chấp nhận thì ván bắt đầu, từ chối hoặc đang trong ván thì người thách được báo ngay.
+
+## Trong ván cờ
+
+Các công tắc nằm ở Cài đặt, nhóm "Ván cờ":
+
+- **Đi trước (premove)**: chọn nước ngay khi chưa tới lượt, quân của bạn được tô xanh kèm mũi tên; khi đối thủ đi xong, nếu nước đó còn hợp lệ thì ván tự đi (chạm lại để hủy). Không dùng khi chơi chung một máy.
+- **Xác nhận nước đi**: sau khi chọn nước hiện nút "Đi" và "Hủy", chạm bàn cờ cũng là hủy.
+- **Nút đầu hàng gọn**: nút Đầu hàng thu thành biểu tượng cờ nhỏ ở cuối hàng nút.
+- **Bảng nước đi**: bấm vào dải nước đi dưới bàn cờ để mở bảng số nước, Trắng, Đen; nước vừa đi được tô nổi.
+- Hiệu ứng mới (tắt cùng công tắc Hiệu ứng): vua bị chiếu nhấp nháy đỏ, đồng hồ còn dưới 20 giây đập nhịp, thanh xác nhận trượt vào, dòng trạng thái mờ dần khi đổi.
+
+## Vẽ trên bàn cờ
+
+Trong ván và khi xem lại ván, giữ ngón tay trên một ô rồi kéo sang ô khác để vẽ mũi tên, giữ yên một ô để tô màu (vẽ lại đúng nét đó thì xóa,
+vẽ cùng nét khác màu thì đổi màu). Dưới bàn cờ có nút Vẽ (kéo là vẽ luôn, không cần giữ, và không đi quân được trong lúc bật), bốn màu và nút Xóa.
+Nét vẽ tự xóa khi có nước mới hoặc khi chạm thường vào bàn cờ, giống chess.com. Bật/tắt tính năng ở Cài đặt, mục Ván cờ.
+
+Kiểu nét vẽ chỉnh bằng JSON ở Giao diện, mục Nét vẽ trên bàn cờ (dán JSON, tải từ link, xem mẫu, đặt lại). Mọi trường đều tùy chọn:
+
+```json
+{
+  "name": "Kiểu của tôi",
+  "colors": ["#2FB36D", "#E5484D", "#3B82F6", "#F2B63D"],
+  "arrowOpacity": 0.85,
+  "arrowWidth": 0.17,
+  "squareOpacity": 0.55,
+  "squareStyle": "fill"
+}
+```
+
+`colors` có 1 đến 6 màu (#RGB, #RRGGBB hoặc #AARRGGBB), `squareStyle` là `fill` (tô kín ô) hoặc `ring` (vòng tròn).
+
 ## Xem lại và phân tích ván
 
 Vào Lịch sử ván, chạm một ván để xem lại. Engine nội bộ chấm từng nước (chạy ngay trên máy, không cần mạng, không tốn phí):

@@ -11,19 +11,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -36,7 +31,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.customchess.BuildConfig
 import com.customchess.vm.AppViewModel
-import com.customchess.vm.ONLINE_PRESETS
 import com.customchess.vm.Screen
 
 // ---------------------------------------------------------------------------------- đấu online
@@ -48,14 +42,12 @@ fun OnlineScreen(vm: AppViewModel) {
     val li = vm.lichessUi
     val google = rememberGoogleSignIn(vm)
     var guide by remember { mutableStateOf(false) }
-    var time by remember { mutableIntStateOf(0) }
-    var rated by remember { mutableStateOf(false) }
     var token by remember { mutableStateOf("") }
     var tokenOpen by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { vm.enterOnline() }
 
     Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 20.dp)) {
-        ScreenHeader("Đấu online", vm::back)
+        ScreenHeader("Đấu online", vm::back, trailing = { InviteEntry(vm) })
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             if (!vm.canPlayOnline) {
                 // khách: mở khóa bằng cách đăng nhập
@@ -146,31 +138,7 @@ fun OnlineScreen(vm: AppViewModel) {
                 GhostButton(if (vm.user?.kind == com.customchess.data.UserKind.LICHESS) "Đăng xuất" else "Ngắt", { vm.lichessLogout() })
             }
 
-            if (li.searching) {
-                Spacer(Modifier.height(32.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(22.dp), color = Pal.Gold, strokeWidth = 2.5.dp)
-                    Text2("Đang tìm đối thủ...", Type.Title, Modifier.padding(start = 14.dp))
-                }
-                Spacer(Modifier.height(8.dp))
-                Text2(
-                    "Giữ màn hình này mở. Khi có người nhận lời, ván sẽ tự bắt đầu.",
-                    Type.Small, Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(24.dp))
-                GhostButton("Hủy tìm", { vm.cancelSeek() }, Modifier.fillMaxWidth())
-            } else {
-                SectionTitle("Thời gian mỗi bên")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(ONLINE_PRESETS.size) { i -> Pill(ONLINE_PRESETS[i].label, time == i, { time = i }) }
-                }
-                Text2("Số phút + số giây cộng thêm sau mỗi nước.", Type.Small, Modifier.padding(top = 6.dp))
-                Spacer(Modifier.height(8.dp))
-                SettingSwitch("Ván tính điểm", "Tắt để chơi giao hữu, không đổi điểm xếp hạng", rated) { rated = it }
-                Spacer(Modifier.height(12.dp))
-                PrimaryButton("Tìm đối thủ", { vm.seekLichess(ONLINE_PRESETS[time], rated) })
-                ErrorText(li.error)
-            }
+            LichessLobby(vm)
             Spacer(Modifier.height(24.dp))
         }
     }

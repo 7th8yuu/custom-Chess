@@ -3,6 +3,7 @@ package com.customchess.vm
 import com.customchess.core.GameResult
 import com.customchess.core.Move
 import com.customchess.core.Position
+import com.customchess.net.OngoingGame
 
 enum class Screen {
     LOGIN, HOME, PLAY, PUZZLES, LEARN, PROFILE,
@@ -28,14 +29,6 @@ val TIME_PRESETS = listOf(
     TimePreset("Không giới hạn", 0, 0),
     TimePreset("3 + 2", 180, 2),
     TimePreset("5 + 0", 300, 0),
-    TimePreset("10 + 0", 600, 0),
-    TimePreset("15 + 10", 900, 10),
-)
-
-/** Các mức thời gian cho ghép trận Lichess (Board API chỉ chơi từ blitz trở lên). */
-val ONLINE_PRESETS = listOf(
-    TimePreset("3 + 2", 180, 2),
-    TimePreset("5 + 3", 300, 3),
     TimePreset("10 + 0", 600, 0),
     TimePreset("15 + 10", 900, 10),
 )
@@ -90,7 +83,39 @@ data class GameUi(
     val evalCp: Int? = null,
     /** Mã bot đang đấu (chế độ BOT). */
     val botId: String = "",
+    /** Nước đang chờ xác nhận (khi bật "Xác nhận nước đi"), null nếu không có. */
+    val pending: Move? = null,
+    /** Bàn cờ xem trước khi đã đi nước đang chờ xác nhận. */
+    val pendingBoard: IntArray? = null,
+    val pendingSan: String = "",
+    /** Ván cờ qua thư (Lichess): không có đồng hồ, thoát ra không bị tính bỏ cuộc. */
+    val corr: Boolean = false,
+    /** Nước đi trước (premove) đã đặt khi chưa tới lượt; tự đi khi đối thủ đi xong nếu còn hợp lệ. */
+    val premove: Move? = null,
 )
+
+enum class InviteSource { LICHESS, WIFI }
+
+/** Lời thách đấu gửi tới mình, từ Lichess hoặc từ một máy cùng mạng Wi-Fi. */
+data class Invite(
+    val id: String,
+    val source: InviteSource,
+    val from: String,
+    val rating: Int = 0,
+    /** Thời gian đã định dạng: "10 + 0", "3 ngày" hoặc "Không giới hạn". */
+    val clock: String,
+    /** Rapid, Blitz...; rỗng nếu không rõ. */
+    val speed: String = "",
+    val rated: Boolean = false,
+    /** Màu người thách muốn cầm: white, black hoặc random. */
+    val color: String = "random",
+    val canAccept: Boolean = true,
+    /** Lý do không nhận được, nếu có. */
+    val note: String = "",
+)
+
+/** Lời thách mình đã gửi trên Lichess, đang chờ trả lời. */
+data class SentInvite(val id: String, val to: String, val clock: String, val rated: Boolean)
 
 data class LichessUi(
     val connected: Boolean = false,
@@ -100,6 +125,12 @@ data class LichessUi(
     val error: String? = null,
     /** Điểm Lichess: blitz, rapid, classical (0 = chưa có hoặc chưa chơi đủ ván). */
     val ratings: List<Int> = listOf(0, 0, 0),
+    /** Nhãn của lượt tìm đang chạy, ví dụ "10 + 0 · Giao hữu". */
+    val searchLabel: String = "",
+    /** Thông báo tích cực (không phải lỗi) cho màn sảnh. */
+    val info: String? = null,
+    /** Các ván đang chơi, gồm cả cờ qua thư. */
+    val ongoing: List<OngoingGame> = emptyList(),
 ) {
     /** Ví dụ "Blitz 1520 · Rapid 1610"; rỗng nếu chưa có điểm nào. */
     val ratingText: String

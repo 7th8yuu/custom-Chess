@@ -8,6 +8,8 @@ package com.customchess.net
  *   MOVE <uci>
  *   RESIGN | DRAW_OFFER | DRAW_ACCEPT | DRAW_DECLINE | TIMEOUT
  *   CHAT <nội dung>
+ *   CHALLENGE <màu người thách: 0 trắng, 1 đen, 2 ngẫu nhiên> <giây> <cộng giây>   (gửi tới máy đang nhận thách đấu)
+ *   DECLINE                                                                         (từ chối hoặc đang bận)
  */
 sealed class Msg {
     data class Hello(val name: String, val version: Int = VERSION) : Msg()
@@ -21,6 +23,12 @@ sealed class Msg {
     /** Người gửi hết giờ (người gửi là bên thua). */
     data object Timeout : Msg()
     data class Chat(val text: String) : Msg()
+
+    /** Lời thách đấu tới máy đang bật "Nhận lời thách đấu". [color]: 0 trắng, 1 đen, 2 ngẫu nhiên (màu người thách). */
+    data class Challenge(val color: Int, val baseSec: Int, val incSec: Int) : Msg()
+
+    /** Máy nhận từ chối lời thách, hoặc đang bận. */
+    data object Decline : Msg()
     data class Unknown(val raw: String) : Msg()
 
     companion object {
@@ -41,6 +49,8 @@ object Protocol {
         Msg.DrawDecline -> "DRAW_DECLINE"
         Msg.Timeout -> "TIMEOUT"
         is Msg.Chat -> "CHAT ${clean(m.text)}"
+        is Msg.Challenge -> "CHALLENGE ${m.color} ${m.baseSec} ${m.incSec}"
+        Msg.Decline -> "DECLINE"
         is Msg.Unknown -> m.raw
     }
 
@@ -67,6 +77,15 @@ object Protocol {
             "DRAW_DECLINE" -> Msg.DrawDecline
             "TIMEOUT" -> Msg.Timeout
             "CHAT" -> Msg.Chat(rest)
+            "CHALLENGE" -> {
+                val p = rest.split(' ')
+                val color = p.getOrNull(0)?.toIntOrNull()
+                val base = p.getOrNull(1)?.toIntOrNull()
+                val inc = p.getOrNull(2)?.toIntOrNull()
+                if (color == null || color !in 0..2 || base == null || inc == null || base < 0 || inc < 0 || base > 10_800 || inc > 180) Msg.Unknown(l)
+                else Msg.Challenge(color, base, inc)
+            }
+            "DECLINE" -> Msg.Decline
             else -> Msg.Unknown(l)
         }
     }

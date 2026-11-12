@@ -1,6 +1,20 @@
 package com.customchess.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,6 +27,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -27,6 +42,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +52,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -44,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import com.customchess.core.GameResult
 import com.customchess.core.Pc
 import com.customchess.core.Reason
+import com.customchess.data.MarkStyle
 import com.customchess.vm.AppViewModel
 import com.customchess.vm.Mode
 import kotlinx.coroutines.delay
@@ -119,8 +141,13 @@ private fun ClockChip(ms: () -> Long, active: Boolean) {
         active -> Pal.Gold
         else -> Pal.PanelHi
     }
+    val beat = if (active && low && Fx.anim) {
+        val t = rememberInfiniteTransition(label = "lowclock")
+        val a by t.animateFloat(1f, 0.55f, infiniteRepeatable(tween(480), RepeatMode.Reverse), label = "lowclock")
+        a
+    } else 1f
     Box(
-        Modifier.clip(RoundedCornerShape(10.dp)).background(bg).padding(horizontal = 12.dp, vertical = 7.dp),
+        Modifier.alpha(beat).clip(RoundedCornerShape(10.dp)).background(bg).padding(horizontal = 12.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text2(formatClock(v), Type.Clock.copy(color = if (active) Pal.OnGold else Pal.Egg))
@@ -171,16 +198,33 @@ private fun PlayerBar(
     }
 }
 
+/** Mũi tên nhỏ, xoay 180 độ khi bảng mở. */
 @Composable
-private fun MoveStrip(sans: List<String>) {
+private fun Chevron(open: Boolean, modifier: Modifier = Modifier) {
+    val rot by animateFloatAsState(if (open) 180f else 0f, if (Fx.anim) tween(240) else tween(0), label = "chev")
+    val col = Pal.EggDim
+    Canvas(modifier.size(18.dp).graphicsLayer { rotationZ = rot }) {
+        val w = size.width; val h = size.height
+        val st = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round)
+        val p = Path().apply {
+            moveTo(w * 0.22f, h * 0.38f); lineTo(w * 0.5f, h * 0.64f); lineTo(w * 0.78f, h * 0.38f)
+        }
+        drawPath(p, col, style = st)
+    }
+}
+
+/** Dải nước đi một dòng; bấm để mở bảng đầy đủ bên dưới. */
+@Composable
+private fun MoveStrip(sans: List<String>, open: Boolean, onToggle: () -> Unit) {
     val state = rememberLazyListState()
     val rows = (sans.size + 1) / 2
     LaunchedEffect(sans.size) { if (rows > 0) state.animateScrollToItem(rows - 1) }
-    Box(Modifier.fillMaxWidth().height(34.dp), contentAlignment = Alignment.CenterStart) {
+    Row(Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
+    Box(Modifier.weight(1f).height(34.dp), contentAlignment = Alignment.CenterStart) {
         if (sans.isEmpty()) {
             Text2("Chưa có nước đi", Type.Small)
         } else {
-            LazyRow(state = state, horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            LazyRow(state = state, userScrollEnabled = false, horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 items(rows) { i ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text2("${i + 1}.", Type.Small)
@@ -194,6 +238,80 @@ private fun MoveStrip(sans: List<String>) {
                     }
                 }
             }
+        }
+    }
+    Spacer(Modifier.width(6.dp))
+    Chevron(open)
+    }
+}
+
+/** Bảng các nước đã đi: số nước, nước Trắng, nước Đen; nước vừa đi được tô nổi. */
+@Composable
+private fun MoveTable(sans: List<String>, open: Boolean) {
+    AnimatedVisibility(
+        visible = open,
+        enter = if (Fx.anim) expandVertically(tween(260)) + fadeIn(tween(220)) else fadeIn(tween(0)),
+        exit = if (Fx.anim) shrinkVertically(tween(200)) + fadeOut(tween(140)) else fadeOut(tween(0)),
+    ) {
+        val scroll = rememberScrollState()
+        val rows = (sans.size + 1) / 2
+        LaunchedEffect(sans.size, open) {
+            delay(30)
+            if (Fx.anim) scroll.animateScrollTo(scroll.maxValue) else scroll.scrollTo(scroll.maxValue)
+        }
+        val shape = RoundedCornerShape(16.dp)
+        Column(Modifier.fillMaxWidth().padding(top = 4.dp).glass(shape).clip(shape)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text2("#", Type.Small, Modifier.width(34.dp))
+                Text2("Trắng", Type.Small, Modifier.weight(1f))
+                Text2("Đen", Type.Small, Modifier.weight(1f))
+            }
+            Column(Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(scroll)) {
+                if (sans.isEmpty()) {
+                    Text2("Chưa có nước đi", Type.Small, Modifier.padding(14.dp))
+                }
+                for (i in 0 until rows) {
+                    val w = 2 * i
+                    val last = w == sans.lastIndex || w + 1 == sans.lastIndex
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .background(if (last) Pal.Gold.copy(alpha = 0.12f) else if (i % 2 == 1) Pal.PanelHi.copy(alpha = 0.35f) else Color.Transparent)
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text2("${i + 1}.", Type.Small, Modifier.width(34.dp))
+                        Text2(sans[w], Type.Body.copy(color = if (w == sans.lastIndex) Pal.Gold else Pal.Egg), Modifier.weight(1f))
+                        Text2(
+                            if (w + 1 < sans.size) sans[w + 1] else "",
+                            Type.Body.copy(color = if (w + 1 == sans.lastIndex) Pal.Gold else Pal.Egg),
+                            Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Nút đầu hàng thu nhỏ: biểu tượng cờ trắng. */
+@Composable
+private fun ResignFlagButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val shape = RoundedCornerShape(18.dp)
+    Box(
+        modifier.height(46.dp).width(46.dp)
+            .alpha(if (enabled) 1f else 0.35f)
+            .pressable(onClick, enabled)
+            .glass(shape, tint = Pal.Alert)
+            .clip(shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(20.dp)) {
+            val w = size.width; val h = size.height
+            drawLine(Pal.Alert, Offset(w * 0.24f, h * 0.1f), Offset(w * 0.24f, h * 0.92f), strokeWidth = 2.2.dp.toPx(), cap = StrokeCap.Round)
+            val flag = Path().apply {
+                moveTo(w * 0.24f, h * 0.12f); lineTo(w * 0.9f, h * 0.3f); lineTo(w * 0.24f, h * 0.54f); close()
+            }
+            drawPath(flag, Pal.Alert)
         }
     }
 }
@@ -223,9 +341,13 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
     var leaveAsk by remember { mutableStateOf(false) }
     var resultDismissed by remember(ui.result) { mutableStateOf(false) }
     var resignAsk by remember { mutableStateOf(false) }
+    var tableOpen by remember { mutableStateOf(false) }
+    val marks = remember { BoardMarks() }
+    val markStyle = remember(vm.settings.markStyle) { MarkStyle.parseOrDefault(vm.settings.markStyle) }
+    SideEffect { marks.style = markStyle }
 
     BackHandler {
-        if (ui.result == null && ui.plyCount > 0 && !ui.disconnected) leaveAsk = true else vm.leaveGame()
+        if (ui.result == null && ui.plyCount > 0 && !ui.disconnected && !ui.corr) leaveAsk = true else vm.leaveGame()
     }
     LaunchedEffect(ui.moveTick) {
         if (ui.moveTick > 0 && vm.settings.haptics) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -240,7 +362,9 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
     val topWhite = ui.flipped
     val mineAt: (Int) -> Boolean = { sq ->
         val p = ui.board[sq]
-        p != 0 && (p > 0) == ui.whiteToMove && (ui.myWhite == null || ui.myWhite == ui.whiteToMove) && !ui.thinking
+        val myTurn = ui.myWhite == null || ui.myWhite == ui.whiteToMove
+        if (myTurn && !ui.thinking) p != 0 && (p > 0) == ui.whiteToMove
+        else vm.settings.premove && ui.myWhite != null && p != 0 && (p > 0) == ui.myWhite // đi trước: kéo quân của mình khi chưa tới lượt
     }
     val gameOver = ui.result != null
 
@@ -250,7 +374,7 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
         Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp),
     ) {
         ScreenHeader(modeTitle(ui.mode), onBack = {
-            if (ui.result == null && ui.plyCount > 0 && !ui.disconnected) leaveAsk = true else vm.leaveGame()
+            if (ui.result == null && ui.plyCount > 0 && !ui.disconnected && !ui.corr) leaveAsk = true else vm.leaveGame()
         })
         PlayerSide(vm, topWhite)
         val evalCp = ui.evalCp
@@ -260,7 +384,7 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
         }
         Spacer(Modifier.height(4.dp))
         ChessBoard(
-            board = ui.board, flipped = ui.flipped, lastMove = ui.lastMove, checkSquare = ui.checkSquare,
+            board = ui.pendingBoard ?: ui.board, flipped = ui.flipped, lastMove = ui.pending ?: ui.lastMove, checkSquare = ui.checkSquare,
             selected = ui.selected, targets = ui.targets, plyCount = ui.plyCount, theme = theme,
             modifier = Modifier.fillMaxWidth(),
             interactive = !gameOver && !ui.disconnected && ui.promotion == null,
@@ -270,9 +394,24 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
             capture = ui.lastCapture,
             highlightLast = vm.settings.highlightLast,
             arrow = vm.analysis?.lines?.firstOrNull()?.move,
+            marks = if (vm.settings.drawing) marks else null,
+            premove = ui.premove,
         )
         Spacer(Modifier.height(4.dp))
         PlayerSide(vm, !topWhite)
+        // thanh xác nhận nước đi: trượt vào khi có nước đang chờ
+        val pendingSan = remember { mutableStateOf("") }
+        if (ui.pending != null) pendingSan.value = ui.pendingSan
+        AnimatedVisibility(
+            visible = ui.pending != null,
+            enter = if (Fx.anim) expandVertically(tween(200)) + slideInVertically(tween(220)) { it / 2 } + fadeIn(tween(180)) else fadeIn(tween(0)),
+            exit = if (Fx.anim) shrinkVertically(tween(160)) + fadeOut(tween(120)) else fadeOut(tween(0)),
+        ) {
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ControlButton("Hủy", vm::cancelPending, Modifier.weight(1f))
+                PrimaryButton("Đi ${pendingSan.value}", vm::confirmPending, Modifier.weight(2f))
+            }
+        }
 
         // dòng trạng thái
         val statusText = when {
@@ -286,20 +425,35 @@ fun GameScreen(vm: AppViewModel, theme: BoardTheme) {
         }
         Box(Modifier.fillMaxWidth().height(34.dp), contentAlignment = Alignment.CenterStart) {
             val notice = ui.notice
-            if (notice != null) Text2(notice, Type.Body.copy(color = Pal.Gold), Modifier.fillMaxWidth())
-            else Text2(
-                statusText,
-                Type.Body.copy(color = if (ui.checkSquare >= 0 && !gameOver) Pal.Alert else Pal.EggDim),
-                Modifier.fillMaxWidth(),
-            )
+            val shown = notice ?: statusText
+            val tone = when {
+                notice != null -> 2
+                ui.checkSquare >= 0 && !gameOver -> 1
+                else -> 0
+            }
+            // đổi dòng trạng thái thì mờ dần qua dòng mới
+            Crossfade(targetState = shown to tone, animationSpec = tween(if (Fx.anim) 220 else 0), label = "status") { (txt, tn) ->
+                Text2(
+                    txt,
+                    Type.Body.copy(color = when (tn) { 2 -> Pal.Gold; 1 -> Pal.Alert; else -> Pal.EggDim }),
+                    Modifier.fillMaxWidth(),
+                )
+            }
         }
-        MoveStrip(ui.sans)
+        MoveStrip(ui.sans, tableOpen) { tableOpen = !tableOpen }
+        MoveTable(ui.sans, tableOpen)
         Spacer(Modifier.height(10.dp))
+        val canResign = !gameOver && !ui.disconnected
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ControlButton("Lật bàn", vm::flipBoard, Modifier.weight(1f))
             ControlButton("Đi lại", vm::undo, Modifier.weight(1f), enabled = ui.canUndo)
             ControlButton("Xin hòa", vm::offerDraw, Modifier.weight(1f), enabled = !gameOver && !ui.disconnected && !ui.drawSent && ui.plyCount > 0)
-            ControlButton("Đầu hàng", { resignAsk = true }, Modifier.weight(1f), enabled = !gameOver && !ui.disconnected, danger = true)
+            if (vm.settings.compactResign) ResignFlagButton({ resignAsk = true }, enabled = canResign)
+            else ControlButton("Đầu hàng", { resignAsk = true }, Modifier.weight(1f), enabled = canResign, danger = true)
+        }
+        if (vm.settings.drawing) {
+            Spacer(Modifier.height(8.dp))
+            DrawBar(marks)
         }
         if (vm.analysisAllowed()) {
             Spacer(Modifier.height(8.dp))

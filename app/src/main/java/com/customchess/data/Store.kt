@@ -69,6 +69,20 @@ data class Settings(
     val analysis: Boolean = true,
     /** Cho AI (Gemini mặc định) giải thích bằng lời trong phần Phân tích. */
     val analysisAi: Boolean = true,
+    /** Vẽ mũi tên và tô ô trên bàn cờ (giữ rồi kéo, hoặc nút Vẽ) trong ván và khi xem lại. */
+    val drawing: Boolean = true,
+    /** Đi trước: chọn nước khi chưa tới lượt, tự đi khi đối thủ vừa đi xong. */
+    val premove: Boolean = false,
+    /** Nút Đầu hàng thu nhỏ thành biểu tượng cờ trắng. */
+    val compactResign: Boolean = true,
+    /** Giữ luồng sự kiện Lichess mở khi dùng ứng dụng để hiện lời thách đấu ngay. */
+    val lichessChallenges: Boolean = true,
+    /** Bật cổng nhận lời thách đấu qua Wi-Fi và phát tín hiệu để máy cùng mạng thấy mình. */
+    val wifiChallenges: Boolean = false,
+    /** Hiện nút Đi/Hủy sau khi chọn nước để tránh lỡ tay. */
+    val confirmMove: Boolean = false,
+    /** Kiểu nét vẽ dạng JSON (xem [MarkStyle]); rỗng = mặc định. */
+    val markStyle: String = "",
 
     // ---- câu đố
     val puzzleHints: Boolean = true,
@@ -156,6 +170,13 @@ class Store(context: Context) {
             language = sp.getString("s.lang", d.language) ?: d.language,
             analysis = b("s.analysis", d.analysis),
             analysisAi = b("s.analysisai", d.analysisAi),
+            drawing = b("s.draw", d.drawing),
+            premove = b("s.premove", d.premove),
+            compactResign = b("s.compactresign", d.compactResign),
+            lichessChallenges = b("s.lcchal", d.lichessChallenges),
+            wifiChallenges = b("s.wifichal", d.wifiChallenges),
+            confirmMove = b("s.confirm", d.confirmMove),
+            markStyle = sp.getString("s.markstyle", d.markStyle) ?: d.markStyle,
             puzzleHints = b("s.phints", d.puzzleHints),
             puzzleAutoNext = b("s.pnext", d.puzzleAutoNext),
             homeDaily = b("s.hdaily", d.homeDaily),
@@ -202,6 +223,13 @@ class Store(context: Context) {
             .putString("s.lang", s.language)
             .putBoolean("s.analysis", s.analysis)
             .putBoolean("s.analysisai", s.analysisAi)
+            .putBoolean("s.draw", s.drawing)
+            .putBoolean("s.premove", s.premove)
+            .putBoolean("s.compactresign", s.compactResign)
+            .putBoolean("s.lcchal", s.lichessChallenges)
+            .putBoolean("s.wifichal", s.wifiChallenges)
+            .putBoolean("s.confirm", s.confirmMove)
+            .putString("s.markstyle", s.markStyle)
             .putBoolean("s.phints", s.puzzleHints)
             .putBoolean("s.pnext", s.puzzleAutoNext)
             .putBoolean("s.hdaily", s.homeDaily)

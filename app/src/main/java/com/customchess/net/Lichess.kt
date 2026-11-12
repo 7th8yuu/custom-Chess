@@ -34,6 +34,98 @@ fun parseProfile(json: String): LichessProfile {
     return LichessProfile(name, listOf(rating("blitz"), rating("rapid"), rating("classical")))
 }
 
+/** Một ván đang diễn ra của tài khoản (từ /api/account/playing hoặc sự kiện gameStart). */
+data class OngoingGame(
+    val id: String,
+    /** Màu của mình trong ván; null nếu không rõ. */
+    val white: Boolean?,
+    val opponent: String,
+    val opponentRating: Int,
+    /** bullet, blitz, rapid, classical, correspondence... */
+    val speed: String,
+    val rated: Boolean,
+    val isMyTurn: Boolean,
+    /** Số giây còn lại cho nước đang đến lượt (cờ qua thư); 0 nếu không có. */
+    val secondsLeft: Int,
+) {
+    val correspondence: Boolean get() = speed == "correspondence"
+}
+
+private fun JSONObject.text(key: String): String = if (isNull(key)) "" else optString(key)
+
+/** Đọc một ván từ sự kiện gameStart hoặc một phần tử của nowPlaying; null nếu thiếu mã ván. */
+fun parseOngoing(o: JSONObject): OngoingGame? {
+    val id = o.text("gameId").ifEmpty { o.text("id") }
+    if (id.isEmpty()) return null
+    val opp = o.optJSONObject("opponent")
+    val name = if (opp == null) "Ẩn danh" else opp.text("username").ifEmpty { opp.text("id") }.ifEmpty { "Ẩn danh" }
+    val color = when (o.text("color")) { "white" -> true; "black" -> false; else -> null }
+    val speed = o.text("speed").ifEmpty { o.text("perf") }
+    return OngoingGame(
+        id = id, white = color, opponent = name, opponentRating = opp?.optInt("rating", 0) ?: 0,
+        speed = speed, rated = o.optBoolean("rated", false),
+        isMyTurn = o.optBoolean("isMyTurn", false), secondsLeft = o.optInt("secondsLeft", 0),
+    )
+}
+
+/** Lời thách đấu trên Lichess (đến hoặc đi), đọc từ sự kiện "challenge". */
+data class LichessChallenge(
+    val id: String,
+    val from: String,
+    val fromRating: Int,
+    /** Người nhận; rỗng với thách đấu mở. */
+    val to: String,
+    val rated: Boolean,
+    val speed: String,
+    /** Thời gian đã định dạng: "10 + 0", "3 ngày" hoặc "Không giới hạn". */
+    val clock: String,
+    /** Màu người thách muốn cầm: random, white hoặc black. */
+    val color: String,
+    val variant: String,
+    /** Lichess báo ván này có chơi được bằng Board API không (ứng dụng ngoài). */
+    val boardOk: Boolean,
+) {
+    val correspondence: Boolean get() = speed == "correspondence"
+    /** Ứng dụng này chỉ chơi cờ vua tiêu chuẩn qua Board API. */
+    val playable: Boolean get() = variant == "standard" && boardOk
+}
+
+/** Đọc đối tượng "challenge" của sự kiện; [compat] là phần "compat" cùng cấp với nó (nếu có). */
+fun parseChallenge(o: JSONObject, compat: JSONObject? = null): LichessChallenge? {
+    val id = o.text("id")
+    if (id.isEmpty()) return null
+    val ch = o.optJSONObject("challenger")
+    val dest = o.optJSONObject("destUser")
+    fun nameOf(u: JSONObject?) = if (u == null) "" else u.text("name").ifEmpty { u.text("id") }
+    val tc = o.optJSONObject("timeControl")
+    val clock = when (tc?.text("type")) {
+        "clock" -> {
+            val limit = tc.optInt("limit", 0)
+            val inc = tc.optInt("increment", 0)
+            if (limit % 60 == 0) "${limit / 60} + $inc" else "${limit}s + $inc"
+        }
+        "correspondence" -> "${tc.optInt("daysPerTurn", 0)} ngày"
+        else -> "Không giới hạn"
+    }
+    return LichessChallenge(
+        id = id,
+        from = nameOf(ch).ifEmpty { "Ẩn danh" },
+        fromRating = ch?.optInt("rating", 0) ?: 0,
+        to = nameOf(dest),
+        rated = o.optBoolean("rated", false),
+        speed = o.text("speed"),
+        clock = clock,
+        color = o.text("color").ifEmpty { "random" },
+        variant = o.optJSONObject("variant")?.text("key")?.ifEmpty { "standard" } ?: "standard",
+        boardOk = compat?.optBoolean("board", true) ?: true,
+    )
+}
+
+fun parseOngoingList(json: String): List<OngoingGame> {
+    val arr = JSONObject(json).optJSONArray("nowPlaying") ?: return emptyList()
+    return (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let(::parseOngoing) }
+}
+
 /**
  * Ghép trận online qua Lichess Board API (miễn phí, dành cho ứng dụng bên thứ ba).
  * Chess.com không có API để chơi từ ứng dụng ngoài, nên Lichess là lựa chọn thay thế.
@@ -79,19 +171,49 @@ class LichessClient(private val token: String) {
     fun streamGame(gameId: String, onEvent: (JSONObject) -> Unit, onEnd: (Throwable?) -> Unit): Cancelable =
         stream(req("/api/board/game/stream/$gameId").get().build(), onEvent, onEnd)
 
+    /** Các ván đang chơi (kể cả cờ qua thư). */
+    fun ongoing(): List<OngoingGame> {
+        http.newCall(req("/api/account/playing").get().build()).execute().use { r ->
+            if (!r.isSuccessful) throw fail(r)
+            return parseOngoingList(r.body?.string().orEmpty())
+        }
+    }
+
+    private fun seekForm(rated: Boolean, color: String, ratingRange: String?): FormBody.Builder {
+        val b = FormBody.Builder()
+            .add("rated", rated.toString())
+            .add("variant", "standard")
+            .add("color", color)
+        if (!ratingRange.isNullOrBlank()) b.add("ratingRange", ratingRange)
+        return b
+    }
+
     /**
      * Tạo yêu cầu tìm đối thủ. Phải giữ kết nối mở cho tới khi có người nhận;
-     * hủy [Cancelable] để thôi tìm.
+     * hủy [Cancelable] để thôi tìm. [color] là random, white hoặc black; [ratingRange] dạng "1500-1800" hoặc null.
      */
-    fun seek(minutes: Int, increment: Int, rated: Boolean, onEnd: (Throwable?) -> Unit): Cancelable {
-        val body = FormBody.Builder()
-            .add("rated", rated.toString())
+    fun seek(
+        minutes: Int, increment: Int, rated: Boolean,
+        color: String = "random", ratingRange: String? = null,
+        onEnd: (Throwable?) -> Unit,
+    ): Cancelable {
+        val body = seekForm(rated, color, ratingRange)
             .add("time", minutes.toString())
             .add("increment", increment.toString())
-            .add("variant", "standard")
-            .add("color", "random")
             .build()
         return stream(req("/api/board/seek").post(body).build(), { }, onEnd)
+    }
+
+    /**
+     * Đăng yêu cầu cờ qua thư ([days] ngày mỗi nước). Khác ghép trận thời gian thực: Lichess trả về ngay và
+     * giữ yêu cầu cho tới khi có người nhận, không cần giữ kết nối. Trả về mã yêu cầu.
+     */
+    fun seekCorrespondence(days: Int, rated: Boolean, color: String = "random", ratingRange: String? = null): String {
+        val body = seekForm(rated, color, ratingRange).add("days", days.toString()).build()
+        http.newCall(req("/api/board/seek").post(body).build()).execute().use { r ->
+            if (!r.isSuccessful) throw fail(r)
+            return try { JSONObject(r.body?.string().orEmpty()).optString("id") } catch (_: org.json.JSONException) { "" }
+        }
     }
 
     fun move(gameId: String, uci: String) = post("/api/board/game/$gameId/move/$uci")
@@ -99,8 +221,30 @@ class LichessClient(private val token: String) {
     fun abort(gameId: String) = post("/api/board/game/$gameId/abort")
     fun draw(gameId: String, accept: Boolean) = post("/api/board/game/$gameId/draw/${if (accept) "yes" else "no"}")
 
-    private fun post(path: String) {
-        http.newCall(req(path).post(FormBody.Builder().build()).build()).execute().use { r ->
+    /**
+     * Gửi lời thách đấu tới [username]. Thời gian thực: [limitSec] giây và [incSec] giây cộng thêm; cờ qua thư: [days] > 0.
+     * Trả về mã lời thách; ván bắt đầu khi đối phương nhận (Lichess báo qua luồng sự kiện).
+     */
+    fun challenge(username: String, rated: Boolean, limitSec: Int, incSec: Int, days: Int, color: String): String {
+        val b = FormBody.Builder()
+            .add("rated", rated.toString())
+            .add("color", color)
+            .add("variant", "standard")
+        if (days > 0) b.add("days", days.toString())
+        else b.add("clock.limit", limitSec.toString()).add("clock.increment", incSec.toString())
+        http.newCall(req("/api/challenge/${Uri.encode(username.trim())}").post(b.build()).build()).execute().use { r ->
+            if (!r.isSuccessful) throw fail(r)
+            val o = try { JSONObject(r.body?.string().orEmpty()) } catch (_: org.json.JSONException) { JSONObject() }
+            return o.optJSONObject("challenge")?.optString("id").orEmpty().ifEmpty { o.optString("id") }
+        }
+    }
+
+    fun acceptChallenge(id: String) = post("/api/challenge/$id/accept")
+    fun cancelChallenge(id: String) = post("/api/challenge/$id/cancel")
+    fun declineChallenge(id: String) = post("/api/challenge/$id/decline", FormBody.Builder().add("reason", "generic").build())
+
+    private fun post(path: String, body: FormBody = FormBody.Builder().build()) {
+        http.newCall(req(path).post(body).build()).execute().use { r ->
             if (!r.isSuccessful) throw fail(r)
         }
     }

@@ -26,10 +26,12 @@ import com.customchess.core.Coach
 import com.customchess.core.CoachLine
 import com.customchess.core.Engine
 import com.customchess.core.Game
+import com.customchess.core.Lobby
 import com.customchess.core.GameResult
 import com.customchess.core.Move
 import com.customchess.core.Pc
 import com.customchess.core.Pgn
+import com.customchess.core.Position
 import com.customchess.core.Reason
 import com.customchess.core.START_FEN
 import com.customchess.core.rankOf
@@ -37,6 +39,7 @@ import com.customchess.data.ApiSlot
 import com.customchess.data.Bot
 import com.customchess.data.CustomBoard
 import com.customchess.data.CustomException
+import com.customchess.data.MarkStyle
 import com.customchess.data.CustomPieces
 import com.customchess.data.Customs
 import com.customchess.data.DriveAuth
@@ -60,6 +63,9 @@ import com.customchess.net.Lan
 import com.customchess.net.LanHost
 import com.customchess.net.LichessClient
 import com.customchess.net.LichessException
+import com.customchess.net.OngoingGame
+import com.customchess.net.parseChallenge
+import com.customchess.net.parseOngoing
 import com.customchess.net.Msg
 import com.customchess.net.StreamLink
 import com.customchess.ui.PieceStyleCache
@@ -262,6 +268,43 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun addPiecesFromUrl(url: String, name: String) = customTask("Đã tải và áp dụng bộ quân mới") {
         importPiecesBytes(customs.download(url, 12 * 1024 * 1024), name)
+    }
+
+    // ------------------------------------------------------------------ kiểu nét vẽ
+    /** Áp dụng kiểu nét vẽ từ JSON dán vào; báo kết quả qua [customMsg]. */
+    fun setMarkStyleFromText(text: String) {
+        try {
+            val st = MarkStyle.parse(text)
+            updateSettings(settings.copy(markStyle = st.toJson()))
+            customMsgError = false
+            customMsg = "Đã áp dụng kiểu nét vẽ \"${st.name}\""
+        } catch (e: CustomException) {
+            customMsgError = true
+            customMsg = e.message
+        }
+    }
+
+    fun setMarkStyleFromUrl(url: String) {
+        if (customBusy) return
+        customBusy = true
+        customMsg = null
+        viewModelScope.launch {
+            try {
+                val text = withContext(Dispatchers.IO) { String(customs.download(url, 256 * 1024), Charsets.UTF_8) }
+                setMarkStyleFromText(text)
+            } catch (e: CustomException) {
+                customMsgError = true
+                customMsg = e.message
+            } finally {
+                customBusy = false
+            }
+        }
+    }
+
+    fun resetMarkStyle() {
+        updateSettings(settings.copy(markStyle = ""))
+        customMsgError = false
+        customMsg = "Đã đặt lại kiểu nét vẽ mặc định"
     }
 
     // ------------------------------------------------------------------ sao lưu Google Drive
@@ -538,6 +581,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         store.saveSettings(s)
         applySound(s)
         com.customchess.ui.Lang.apply(app, s.language)
+        syncChallengeListeners()
     }
 
     // ------------------------------------------------------------------ ngôn ngữ
@@ -669,6 +713,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             selected = -1,
             targets = emptySet(),
             promotion = null,
+            pending = null, pendingBoard = null, pendingSan = "",
             canUndo = editable && game.moves.isNotEmpty() && res == null,
         ).extra()
         if (res != null) {
@@ -724,6 +769,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         blackSub: String = "",
         clock: TimePreset? = null,
         startFen: String = START_FEN,
+        noClock: Boolean = false,
     ) {
         aiJob?.cancel()
         clockJob?.cancel()
@@ -751,11 +797,12 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             blackName = blackName,
             whiteSub = whiteSub,
             blackSub = blackSub,
-            timed = timed || newMode == Mode.LICHESS,
+            timed = (timed || newMode == Mode.LICHESS) && !noClock,
+            corr = noClock && newMode == Mode.LICHESS,
         )
         refresh()
         if (screen != Screen.GAME) stack.add(Screen.GAME)
-        if (timed || newMode == Mode.LICHESS) startClockTicker()
+        if ((timed || newMode == Mode.LICHESS) && !noClock) startClockTicker()
         if (newMode != Mode.LICHESS) updateEval()
         maybeAiMove()
     }
@@ -764,22 +811,25 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun leaveGame(silent: Boolean = false) {
         val wasMode = mode
         val wasActive = ui.active
+        val wasCorr = wasMode == Mode.LICHESS && lichessCorr
         aiJob?.cancel()
         closeAnalysis()
         clockJob?.cancel()
         if (wasMode == Mode.LINK) closeLink()
         if (wasMode == Mode.LICHESS) {
-            lichessGameId?.let { id -> if (ui.result == null) io { runCatching { lichessClient?.let { c -> if (game.moves.size < 2) c.abort(id) else c.resign(id) } } } }
+            // ván cờ qua thư: thoát ra chỉ là rời màn hình, ván vẫn còn ở Lichess
+            if (!lichessCorr) lichessGameId?.let { id -> if (ui.result == null) io { runCatching { lichessClient?.let { c -> if (game.moves.size < 2) c.abort(id) else c.resign(id) } } } }
             gameStream?.cancel()
             gameStream = null
             lichessGameId = null
+            if (lichessCorr) { lichessCorr = false; refreshOngoing() }
         }
         ui = GameUi()
         whiteMs = -1L
         blackMs = -1L
         if (silent || !wasActive) return
         if (screen == Screen.GAME) {
-            if (wasMode == Mode.ENGINE || wasMode == Mode.API || wasMode == Mode.LOCAL || wasMode == Mode.BOT) back() else goHome()
+            if (wasMode == Mode.ENGINE || wasMode == Mode.API || wasMode == Mode.LOCAL || wasMode == Mode.BOT || wasCorr) back() else goHome()
         }
     }
 
@@ -848,7 +898,8 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun onSquareTap(sq: Int) {
         val s = ui
         if (!s.active || s.result != null || s.disconnected || s.promotion != null) return
-        if (s.thinking || !isMyTurn()) return
+        if (s.pending != null) cancelPending() // chạm bàn cờ thì bỏ nước đang chờ xác nhận
+        if (s.thinking || !isMyTurn()) { premoveTap(sq); return }
         val p = game.position
         val piece = p.board[sq]
         val mine = piece != 0 && (piece > 0) == p.whiteToMove
@@ -871,17 +922,85 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         val piece = p.board[from]
         val lastRank = if (p.whiteToMove) 7 else 0
         if (abs(piece) == Pc.PAWN && rankOf(to) == lastRank) {
-            if (settings.autoQueen) { commitMove(Move(from, to, Pc.QUEEN), byMe = true); return }
+            if (settings.autoQueen) { requestMove(Move(from, to, Pc.QUEEN)); return }
             ui = ui.copy(promotion = from to to, targets = emptySet())
             return
         }
-        commitMove(Move(from, to), byMe = true)
+        requestMove(Move(from, to))
     }
 
     fun choosePromotion(type: Int) {
         val pr = ui.promotion ?: return
         ui = ui.copy(promotion = null)
-        commitMove(Move(pr.first, pr.second, type), byMe = true)
+        requestMove(Move(pr.first, pr.second, type))
+    }
+
+    /** Đi ngay, hoặc (khi bật "Xác nhận nước đi") hiện nước đó chờ bấm Đi hoặc Hủy. */
+    private fun requestMove(m: Move) {
+        if (!settings.confirmMove) { commitMove(m, byMe = true); return }
+        val p = game.position
+        if (m !in p.legalMoves()) { commitMove(m, byMe = true); return }
+        ui = ui.copy(pending = m, pendingBoard = p.apply(m).board.copyOf(), pendingSan = p.san(m), selected = -1, targets = emptySet(), promotion = null)
+    }
+
+    fun confirmPending() {
+        val m = ui.pending ?: return
+        cancelPending()
+        if (ui.active && ui.result == null && isMyTurn() && !ui.thinking) commitMove(m, byMe = true)
+    }
+
+    fun cancelPending() {
+        if (ui.pending != null) ui = ui.copy(pending = null, pendingBoard = null, pendingSan = "")
+    }
+
+    // ------------------------------------------------------------------ đi trước (premove)
+    /** Thế cờ giả định đến lượt mình (đổi bên đi, bỏ bắt tốt qua đường) để tìm nước đi trước hợp lệ. */
+    private fun asIfMyTurn(p: Position, iAmWhite: Boolean): Position? {
+        val parts = p.toFen().split(' ').toMutableList()
+        if (parts.size < 4) return null
+        parts[1] = if (iAmWhite) "w" else "b"
+        parts[3] = "-"
+        return Position.fromFen(parts.joinToString(" "))
+    }
+
+    private fun premoveTap(sq: Int) {
+        if (!settings.premove || mode == Mode.LOCAL) return
+        val iWhite = myWhite ?: return
+        val base = asIfMyTurn(game.position, iWhite) ?: return
+        val piece = base.board[sq]
+        val mine = piece != 0 && (piece > 0) == iWhite
+        val s = ui
+        if (s.selected >= 0) {
+            if (sq in s.targets) {
+                val from = s.selected
+                val lastRank = if (iWhite) 7 else 0
+                val promo = if (abs(base.board[from]) == Pc.PAWN && rankOf(sq) == lastRank) Pc.QUEEN else 0
+                ui = ui.copy(premove = Move(from, sq, promo), selected = -1, targets = emptySet())
+                return
+            }
+            if (mine && sq != s.selected) { selectForPremove(base, sq); return }
+            ui = ui.copy(selected = -1, targets = emptySet(), premove = null)
+            return
+        }
+        if (mine) selectForPremove(base, sq) else if (s.premove != null) ui = ui.copy(premove = null)
+    }
+
+    private fun selectForPremove(base: Position, sq: Int) {
+        val targets = base.legalMoves().filter { it.from == sq }.map { it.to }.toSet()
+        ui = ui.copy(selected = sq, targets = targets, premove = null)
+    }
+
+    /** Đối thủ vừa đi xong: đi nước đã đặt trước nếu còn hợp lệ, không thì bỏ. */
+    private fun runPremove() {
+        val pm = ui.premove ?: return
+        ui = ui.copy(premove = null, selected = -1, targets = emptySet())
+        if (!ui.active || ui.result != null || !isMyTurn()) return
+        val m = game.position.legalMoves().firstOrNull { it.from == pm.from && it.to == pm.to && (pm.promo == 0 || it.promo == pm.promo) } ?: return
+        val ply = game.moves.size
+        viewModelScope.launch {
+            delay(200) // chờ hiệu ứng nước của đối thủ
+            if (ui.active && ui.result == null && game.moves.size == ply && isMyTurn()) commitMove(m, byMe = true)
+        }
     }
 
     fun cancelPromotion() {
@@ -924,6 +1043,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             }
         }
         if (ui.result == null) maybeAiMove()
+        if (!byMe && ui.result == null) runPremove()
     }
 
     fun flipBoard() {
@@ -944,7 +1064,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             else -> 1
         }
         repeat(minOf(n, game.moves.size)) { game.undo() }
-        ui = ui.copy(thinking = false, aiError = null)
+        ui = ui.copy(thinking = false, aiError = null, premove = null)
         refresh()
         updateEval()
         maybeAiMove()
@@ -1019,7 +1139,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         if (ui.result != null) return
         game.forcedResult = r
         aiJob?.cancel()
-        ui = ui.copy(result = r, thinking = false, selected = -1, targets = emptySet(), drawOffered = false, promotion = null, canUndo = false)
+        ui = ui.copy(result = r, thinking = false, selected = -1, targets = emptySet(), drawOffered = false, promotion = null, canUndo = false, premove = null, pending = null, pendingBoard = null, pendingSan = "")
         onGameEnded(r)
     }
 
@@ -1210,6 +1330,19 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     private var peerName = "Bạn bè"
     private var wifiHost: Lan.Host? = null
     private var lanScanner: Lan.Scanner? = null
+    private var lanListener: Lan.Listener? = null
+    @Volatile private var announceName = "Bạn bè"
+    private var pendingLan: PendingLan? = null
+    private var lanSeq = 0
+
+    /** Kết nối Wi-Fi đang chờ mình trả lời lời thách (chưa thành liên kết ván). */
+    private class PendingLan(val link: StreamLink) {
+        var name = "Bạn bè"
+        var color = 2
+        var base = 0
+        var inc = 0
+        var invite: Invite? = null
+    }
     private var btHost: Bt.Host? = null
 
     fun startWifiHost() {
@@ -1230,8 +1363,9 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         stopLobbies()
         lobbyError = null
         lanHosts.clear()
+        val mine = Lan.localAddresses().toSet()
         val s = Lan.Scanner(app) { h ->
-            post { if (lanHosts.none { it.address == h.address && it.port == h.port }) lanHosts.add(h) }
+            post { if (h.address !in mine && lanHosts.none { it.address == h.address && it.port == h.port }) lanHosts.add(h) }
         }
         lanScanner = s
         s.start()
@@ -1323,12 +1457,13 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         l?.close()
     }
 
-    private fun onLinkConnected(l: StreamLink, host: Boolean) {
+    /** Gắn một đường truyền làm liên kết ván hiện tại (đóng liên kết cũ, đặt bộ xử lý thông điệp). */
+    private fun attachLink(l: StreamLink, host: Boolean, peer: String = "Bạn bè") {
         stopLobbies()
         closeLink()
         link = l
         linkIsHost = host
-        peerName = "Bạn bè"
+        peerName = peer
         l.onLine = { line -> post { handleMsg(com.customchess.net.Protocol.parse(line)) } }
         l.onClosed = {
             post {
@@ -1336,14 +1471,148 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
                     if (ui.active && mode == Mode.LINK) {
                         if (ui.result == null) ui = ui.copy(disconnected = true, notice = "Mất kết nối với bạn bè")
                     } else {
+                        lobbyBusy = false
                         lobbyError = "Kết nối đã bị ngắt"
                     }
                 }
             }
         }
+    }
+
+    private fun onLinkConnected(l: StreamLink, host: Boolean) {
+        attachLink(l, host)
         l.start()
         l.send(Msg.Hello(me))
         lobbyBusy = true // chờ bắt tay xong
+    }
+
+    // ------------------------------------------------------------------ thách đấu qua Wi-Fi
+    /** Bật hoặc tắt các bộ nghe thách đấu (Lichess nền, Wi-Fi) theo Cài đặt. */
+    private fun syncChallengeListeners() {
+        announceName = me
+        if (settings.wifiChallenges) {
+            if (lanListener == null) {
+                val l = Lan.Listener(
+                    name = { announceName },
+                    onConnection = { link, _ -> post { onLanChallengeConnection(link) } },
+                    onError = { msg -> post { lanListener = null; inviteNote = "Không bật được nhận thách đấu Wi-Fi: $msg" } },
+                )
+                lanListener = l
+                l.start()
+            }
+        } else {
+            lanListener?.stop(); lanListener = null
+            pendingLan?.let { dropPendingLan(it) }
+        }
+        if (settings.lichessChallenges) {
+            ensureEvents()
+        } else if (screen != Screen.ONLINE && eventStream != null) {
+            eventGen++; eventStream?.cancel(); eventStream = null
+            invites.removeAll { it.source == InviteSource.LICHESS }
+            sentInvites.clear()
+        }
+    }
+
+    private fun lanClockText(base: Int, inc: Int): String = when {
+        base <= 0 -> "Không giới hạn"
+        base % 60 == 0 -> "${base / 60} + $inc"
+        else -> "${base}s + $inc"
+    }
+
+    private fun onLanChallengeConnection(l: StreamLink) {
+        val busy = pendingLan != null || (ui.active && ui.result == null)
+        if (busy) {
+            l.start()
+            l.send(Msg.Decline)
+            viewModelScope.launch { delay(400); l.close() }
+            return
+        }
+        val p = PendingLan(l)
+        pendingLan = p
+        l.onLine = { line -> post { onLanPendingMsg(p, com.customchess.net.Protocol.parse(line)) } }
+        l.onClosed = { post { if (pendingLan === p) dropPendingLan(p, close = false) } }
+        l.start()
+        l.send(Msg.Hello(me))
+        // kết nối im lặng quá lâu thì bỏ, tránh giữ chỗ
+        viewModelScope.launch { delay(20_000); if (pendingLan === p && p.invite == null) dropPendingLan(p) }
+    }
+
+    private fun onLanPendingMsg(p: PendingLan, m: Msg) {
+        if (pendingLan !== p) return
+        when (m) {
+            is Msg.Hello -> p.name = m.name
+            is Msg.Challenge -> if (p.invite == null) {
+                p.color = m.color; p.base = m.baseSec; p.inc = m.incSec
+                val inv = Invite(
+                    id = "lan:${++lanSeq}", source = InviteSource.WIFI, from = p.name,
+                    clock = lanClockText(m.baseSec, m.incSec),
+                    color = when (m.color) { 0 -> "white"; 1 -> "black"; else -> "random" },
+                )
+                p.invite = inv
+                invites.add(inv)
+            }
+            else -> Unit
+        }
+    }
+
+    private fun dropPendingLan(p: PendingLan, close: Boolean = true) {
+        if (pendingLan === p) pendingLan = null
+        p.invite?.let { inv -> invites.removeAll { it.id == inv.id } }
+        if (close) { p.link.onClosed = {}; p.link.close() }
+    }
+
+    private fun acceptLan(inv: Invite) {
+        val p = pendingLan?.takeIf { it.invite?.id == inv.id }
+        invites.removeAll { it.id == inv.id }
+        if (p == null) { inviteNote = "Lời thách đã hết hiệu lực"; return }
+        pendingLan = null
+        attachLink(p.link, host = true, peer = p.name)
+        // người thách muốn cầm màu nào thì mình cầm màu còn lại (0 = người thách cầm Trắng nên chủ nhận là Đen)
+        val hostChoice = when (p.color) { 0 -> 1; 1 -> 0; else -> 2 }
+        val hostWhite = com.customchess.net.Sides.hostIsWhite(hostChoice) { Random.nextBoolean() }
+        p.link.send(com.customchess.net.Sides.startFor(hostWhite, p.base, p.inc))
+        startLinkGame(hostWhite, TimePreset("", p.base, p.inc))
+    }
+
+    private fun declineLan(inv: Invite) {
+        val p = pendingLan?.takeIf { it.invite?.id == inv.id }
+        invites.removeAll { it.id == inv.id }
+        if (p == null) return
+        pendingLan = null
+        p.link.send(Msg.Decline)
+        viewModelScope.launch { delay(400); p.link.onClosed = {}; p.link.close() }
+    }
+
+    /** Gửi lời thách tới một máy đang nhận thách đấu. [color]: màu mình muốn cầm (0 trắng, 1 đen, 2 ngẫu nhiên). */
+    fun challengeWifi(host: LanHost, color: Int, base: Int, inc: Int) {
+        if (lobbyBusy) return
+        lobbyError = null
+        lobbyBusy = true
+        viewModelScope.launch {
+            try {
+                val l = withContext(Dispatchers.IO) { Lan.connect(host.address, host.port) }
+                attachLink(l, host = false, peer = host.name)
+                lobbyBusy = true // attachLink dừng các phòng chờ và tắt cờ này
+                l.start()
+                l.send(Msg.Hello(me))
+                l.send(Msg.Challenge(color, base, inc))
+                delay(45_000)
+                if (link === l && !ui.active && lobbyBusy) {
+                    lobbyBusy = false
+                    lobbyError = "${host.name} chưa trả lời lời thách đấu"
+                    closeLink()
+                }
+            } catch (e: Exception) {
+                lobbyBusy = false
+                lobbyError = "Không gửi được lời thách tới ${host.name}: ${e.message ?: "lỗi mạng"}"
+            }
+        }
+    }
+
+    /** Hủy lời thách Wi-Fi đang chờ trả lời. */
+    fun cancelWifiChallenge() {
+        if (!ui.active) closeLink()
+        lobbyBusy = false
     }
 
     private fun handleMsg(m: Msg) {
@@ -1369,7 +1638,13 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             Msg.DrawAccept -> if (ui.active && mode == Mode.LINK) finish(GameResult(null, Reason.AGREEMENT))
             Msg.DrawDecline -> if (ui.active && mode == Mode.LINK) ui = ui.copy(drawSent = false, notice = "Bạn bè từ chối hòa")
             Msg.Timeout -> if (ui.active && mode == Mode.LINK) finish(GameResult(myWhite, Reason.TIMEOUT))
-            is Msg.Chat, is Msg.Unknown -> Unit
+            Msg.Decline -> if (!linkIsHost && !ui.active) {
+                val who = peerName
+                closeLink()
+                lobbyBusy = false
+                lobbyError = "$who đã từ chối lời thách đấu hoặc đang bận"
+            }
+            is Msg.Chat, is Msg.Unknown, is Msg.Challenge -> Unit
         }
     }
 
@@ -1393,6 +1668,22 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     private var seekCall: Cancelable? = null
     private var gameStream: Cancelable? = null
     private var lichessGameId: String? = null
+    private var lichessCorr = false
+    private var corrSeekPending = false
+    private var eventGen = 0
+
+    // ---- thư mời (lời thách đấu đến từ Lichess và Wi-Fi)
+    val invites = mutableStateListOf<Invite>()
+    val sentInvites = mutableStateListOf<SentInvite>()
+    /** Mã các lời thách mình đã gửi hoặc đã nhận trên Lichess: ván sinh ra từ đó (cùng mã) sẽ tự mở. */
+    private val sentIds = mutableSetOf<String>()
+    private val acceptedIds = mutableSetOf<String>()
+    /** Các thư mời mà popup đã được đóng (vẫn nằm trong hộp thư). */
+    var dismissedPopups by mutableStateOf(setOf<String>())
+        private set
+    /** Thông báo ngắn về thư mời (bị từ chối, lỗi...). */
+    var inviteNote by mutableStateOf<String?>(null)
+        private set
 
     private fun io(block: () -> Unit) {
         Thread { block() }.apply { isDaemon = true }.start()
@@ -1401,6 +1692,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     init {
         // Kiểm tra lại token Lichess đã lưu (còn hiệu lực không) và cập nhật điểm xếp hạng.
         refreshLichess()
+        syncChallengeListeners()
     }
 
     private fun refreshLichess() {
@@ -1412,6 +1704,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
                 store.lichessName = p.name
                 store.lichessRatings = p.ratings
                 lichessUi = lichessUi.copy(connected = true, name = p.name, ratings = p.ratings)
+                ensureEvents()
             } catch (e: LichessException) {
                 if (e.code == 401) lichessSessionExpired()
             } catch (_: Exception) {
@@ -1435,6 +1728,27 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun enterOnline() {
         if (!canPlayOnline) return
         if (store.lichessToken.isNotBlank() && eventStream == null) openEventStream(LichessClient(store.lichessToken))
+        refreshOngoing()
+    }
+
+    /** Mở luồng sự kiện Lichess nền (nhận lời thách đấu) nếu đã đăng nhập và bật cài đặt. */
+    private fun ensureEvents() {
+        if (!settings.lichessChallenges || !canPlayOnline || eventStream != null) return
+        val t = store.lichessToken
+        if (t.isNotBlank()) openEventStream(lichessClient ?: LichessClient(t))
+    }
+
+    /** Tải lại danh sách ván đang chơi (kể cả cờ qua thư) từ Lichess. */
+    fun refreshOngoing() {
+        val client = lichessClient ?: store.lichessToken.takeIf { it.isNotBlank() }?.let { LichessClient(it) } ?: return
+        io {
+            try {
+                val list = client.ongoing()
+                post { lichessUi = lichessUi.copy(ongoing = list) }
+            } catch (e: LichessException) {
+                if (e.code == 401) post { lichessSessionExpired() }
+            } catch (_: Exception) { }
+        }
     }
 
     /**
@@ -1503,8 +1817,9 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
                 val cur = user
                 if (cur == null || cur.isGuest) applyUser(User(UserKind.LICHESS, p.name, "lichess.org/@/${p.name}"))
                 lichessClient = client
-                // Luồng sự kiện chỉ mở khi đang ở màn Đấu online, kẻo ván bắt đầu trên trang web lại tự bật lên trong ứng dụng.
-                if (screen == Screen.ONLINE) openEventStream(client)
+                // Luồng sự kiện mở khi ở màn Đấu online hoặc khi bật "nhận lời thách đấu". Ván bắt đầu ở nơi khác (trang web)
+                // không tự bật lên trong ứng dụng: chỉ ván do chính ứng dụng tìm hoặc thách mới tự mở.
+                if (screen == Screen.ONLINE || settings.lichessChallenges) openEventStream(client)
             } catch (e: Exception) {
                 lichessUi = lichessUi.copy(busy = false, error = e.message ?: "Không kết nối được Lichess")
             }
@@ -1522,10 +1837,14 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun stopLichess(keepLogin: Boolean) {
         seekCall?.cancel(); seekCall = null
-        eventStream?.cancel(); eventStream = null
+        // rời màn Đấu online mà vẫn bật nhận thách đấu thì giữ luồng sự kiện chạy nền
+        if (!keepLogin || !settings.lichessChallenges) { eventGen++; eventStream?.cancel(); eventStream = null }
         if (!keepLogin) {
+            invites.removeAll { it.source == InviteSource.LICHESS }
+            sentInvites.clear(); sentIds.clear(); acceptedIds.clear()
             gameStream?.cancel(); gameStream = null
             lichessGameId = null
+            lichessCorr = false
             lichessClient = null
             store.lichessToken = ""
             store.lichessName = ""
@@ -1539,28 +1858,75 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun openEventStream(client: LichessClient) {
         lichessClient = client
         eventStream?.cancel()
+        val gen = ++eventGen
+        // Lichess gửi lại mọi lời thách và ván đang có khi mở luồng, nên làm mới danh sách từ đầu.
+        invites.removeAll { it.source == InviteSource.LICHESS }
+        sentInvites.clear()
         eventStream = client.streamEvents(
-            onEvent = { e -> post { onLichessEvent(e) } },
+            onEvent = { e -> post { if (gen == eventGen) onLichessEvent(e) } },
             onEnd = { err ->
                 post {
+                    if (gen != eventGen) return@post
                     eventStream = null
-                    if (err != null && !ui.active) lichessUi = lichessUi.copy(searching = false, error = err.message ?: "Mất kết nối Lichess")
+                    if (err is LichessException && err.code == 401) { lichessSessionExpired(); return@post }
+                    if (err != null && !ui.active && screen == Screen.ONLINE) lichessUi = lichessUi.copy(searching = false, error = err.message ?: "Mất kết nối Lichess")
+                    scheduleEventReconnect(gen)
                 }
             },
         )
     }
 
-    fun seekLichess(preset: TimePreset, rated: Boolean) {
+    /** Luồng nền bị ngắt (mất mạng...): thử nối lại sau 15 giây nếu vẫn bật nhận thách đấu. */
+    private fun scheduleEventReconnect(gen: Int) {
+        if (!settings.lichessChallenges || store.lichessToken.isBlank()) return
+        viewModelScope.launch {
+            delay(15_000)
+            if (gen == eventGen && eventStream == null) ensureEvents()
+        }
+    }
+
+    /** Ghép trận thời gian thực. [color] là random, white hoặc black; [ratingRange] dạng "1500-1800" hoặc null. */
+    fun seekLichess(minutes: Int, increment: Int, rated: Boolean, color: String = "random", ratingRange: String? = null) {
         val client = lichessClient ?: return
         if (lichessUi.searching) return
+        Lobby.checkClock(minutes, increment)?.let { lichessUi = lichessUi.copy(error = it); return }
         if (eventStream == null) openEventStream(client)
-        lichessUi = lichessUi.copy(searching = true, error = null)
-        seekCall = client.seek(preset.baseSec / 60, preset.incSec, rated) { err ->
+        lichessUi = lichessUi.copy(
+            searching = true, error = null, info = null,
+            searchLabel = "${Lobby.label(minutes, increment)} · ${if (rated) "Xếp hạng" else "Giao hữu"}",
+        )
+        seekCall = client.seek(minutes, increment, rated, color, ratingRange) { err ->
             post {
                 if (err != null) lichessUi = lichessUi.copy(searching = false, error = err.message ?: "Không tìm được đối thủ")
                 else if (lichessGameId == null) lichessUi = lichessUi.copy(searching = false)
             }
         }
+    }
+
+    /** Đăng yêu cầu cờ qua thư; Lichess giữ yêu cầu cho tới khi có người nhận, không cần ở lại màn hình. */
+    fun seekCorrespondence(days: Int, rated: Boolean, color: String = "random", ratingRange: String? = null) {
+        val client = lichessClient ?: return
+        if (lichessUi.busy) return
+        if (eventStream == null) openEventStream(client)
+        lichessUi = lichessUi.copy(busy = true, error = null, info = null)
+        io {
+            try {
+                client.seekCorrespondence(days, rated, color, ratingRange)
+                post {
+                    corrSeekPending = true
+                    lichessUi = lichessUi.copy(
+                        busy = false,
+                        info = "Đã đăng yêu cầu cờ qua thư, $days ngày mỗi nước. Khi có người nhận, ván hiện ở mục Ván đang chơi.",
+                    )
+                }
+            } catch (e: Exception) {
+                post { lichessUi = lichessUi.copy(busy = false, error = e.message ?: "Không đăng được yêu cầu") }
+            }
+        }
+    }
+
+    fun showOnlineError(text: String?) {
+        lichessUi = lichessUi.copy(error = text, info = null)
     }
 
     fun cancelSeek() {
@@ -1570,15 +1936,149 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     private fun onLichessEvent(e: JSONObject) {
-        if (e.optString("type") != "gameStart") return
-        val g = e.optJSONObject("game") ?: return
-        val id = g.optString("gameId").ifEmpty { g.optString("id") }
-        if (id.isEmpty() || id == lichessGameId) return
-        val white = when (g.optString("color")) { "white" -> true; "black" -> false; else -> null }
-        lichessGameId = id
-        seekCall?.cancel(); seekCall = null
-        lichessUi = lichessUi.copy(searching = false)
+        when (e.optString("type")) {
+            "gameStart" -> {
+                val g = e.optJSONObject("game") ?: return
+                val og = parseOngoing(g) ?: return
+                val ours = lichessUi.searching || og.id in sentIds || og.id in acceptedIds
+                sentInvites.removeAll { it.id == og.id }
+                if (og.correspondence || !ours) {
+                    // Cờ qua thư và ván bắt đầu ở nơi khác (khi mở luồng Lichess gửi lại mọi ván đang chơi) không tự mở:
+                    // đưa vào danh sách để người dùng chủ động bấm Mở.
+                    val fresh = lichessUi.ongoing.none { it.id == og.id }
+                    lichessUi = lichessUi.copy(
+                        ongoing = lichessUi.ongoing.filter { it.id != og.id } + og,
+                        info = if (fresh && og.correspondence && (corrSeekPending || og.id in sentIds || og.id in acceptedIds)) "${og.opponent} đã nhận ván cờ qua thư của bạn" else lichessUi.info,
+                    )
+                    if (fresh && og.correspondence) corrSeekPending = false
+                    return
+                }
+                if (og.id == lichessGameId) return
+                seekCall?.cancel(); seekCall = null
+                lichessUi = lichessUi.copy(searching = false)
+                startLichessGame(og.id, og.white, corr = false)
+            }
+            "gameFinish" -> {
+                val id = e.optJSONObject("game")?.let { parseOngoing(it)?.id } ?: return
+                lichessUi = lichessUi.copy(ongoing = lichessUi.ongoing.filter { it.id != id })
+            }
+            "challenge" -> {
+                val c = parseChallenge(e.optJSONObject("challenge") ?: return, e.optJSONObject("compat")) ?: return
+                if (c.from.equals(lichessUi.name, ignoreCase = true)) {
+                    sentIds += c.id
+                    sentInvites.removeAll { it.id == c.id }
+                    sentInvites.add(SentInvite(c.id, c.to.ifEmpty { "Mở" }, c.clock, c.rated))
+                } else {
+                    val note = when {
+                        c.variant != "standard" -> "Biến thể ${c.variant}: ứng dụng này chỉ chơi cờ vua tiêu chuẩn"
+                        !c.boardOk -> "Lichess không cho ứng dụng ngoài chơi loại thời gian này"
+                        else -> ""
+                    }
+                    invites.removeAll { it.id == c.id }
+                    invites.add(
+                        Invite(
+                            id = c.id, source = InviteSource.LICHESS, from = c.from, rating = c.fromRating,
+                            clock = c.clock, speed = c.speed, rated = c.rated, color = c.color,
+                            canAccept = c.playable, note = note,
+                        ),
+                    )
+                }
+            }
+            "challengeCanceled" -> {
+                val id = e.optJSONObject("challenge")?.optString("id").orEmpty()
+                invites.removeAll { it.id == id }
+                sentInvites.removeAll { it.id == id }
+            }
+            "challengeDeclined" -> {
+                val c = parseChallenge(e.optJSONObject("challenge") ?: return) ?: return
+                sentInvites.removeAll { it.id == c.id }
+                inviteNote = "${c.to.ifEmpty { "Đối phương" }} đã từ chối lời thách đấu của bạn"
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ thư mời: nhận, từ chối, gửi
+    fun acceptInvite(inv: Invite) {
+        if (!inv.canAccept) return
+        when (inv.source) {
+            InviteSource.LICHESS -> {
+                val client = lichessClient ?: return
+                acceptedIds += inv.id
+                invites.removeAll { it.id == inv.id }
+                io {
+                    try {
+                        client.acceptChallenge(inv.id)
+                    } catch (e: Exception) {
+                        post { acceptedIds -= inv.id; inviteNote = "Không nhận được lời thách: ${e.message ?: "lỗi mạng"}" }
+                    }
+                }
+            }
+            InviteSource.WIFI -> acceptLan(inv)
+        }
+    }
+
+    fun declineInvite(inv: Invite) {
+        when (inv.source) {
+            InviteSource.LICHESS -> {
+                invites.removeAll { it.id == inv.id }
+                val client = lichessClient ?: return
+                io { runCatching { client.declineChallenge(inv.id) } }
+            }
+            InviteSource.WIFI -> declineLan(inv)
+        }
+    }
+
+    /** Đóng popup của một thư mời nhưng giữ nó trong hộp thư. */
+    fun dismissPopup(id: String) {
+        dismissedPopups = dismissedPopups + id
+    }
+
+    fun cancelSentInvite(s: SentInvite) {
+        sentInvites.removeAll { it.id == s.id }
         val client = lichessClient ?: return
+        io { runCatching { client.cancelChallenge(s.id) } }
+    }
+
+    fun clearInviteNote() { inviteNote = null }
+
+    /**
+     * Gửi lời thách đấu tới một tài khoản Lichess. Thời gian thực khi [days] = 0 (dùng [minutes] và [increment]),
+     * cờ qua thư khi [days] > 0. Ván tự mở khi đối phương nhận lời.
+     */
+    fun sendChallenge(username: String, rated: Boolean, minutes: Int, increment: Int, days: Int, color: String) {
+        val client = lichessClient ?: return
+        val name = username.trim()
+        if (lichessUi.busy) return
+        if (!Lobby.validUsername(name)) { lichessUi = lichessUi.copy(error = "Tên tài khoản Lichess không hợp lệ", info = null); return }
+        if (days == 0) Lobby.checkClock(minutes, increment)?.let { lichessUi = lichessUi.copy(error = it, info = null); return }
+        if (eventStream == null) openEventStream(client)
+        lichessUi = lichessUi.copy(busy = true, error = null, info = null)
+        io {
+            try {
+                val id = client.challenge(name, rated, minutes * 60, increment, days, color)
+                post {
+                    if (id.isNotEmpty()) sentIds += id
+                    lichessUi = lichessUi.copy(busy = false, info = "Đã gửi lời thách tới $name. Ván tự mở khi họ nhận lời.")
+                }
+            } catch (e: Exception) {
+                post { lichessUi = lichessUi.copy(busy = false, error = e.message ?: "Không gửi được lời thách") }
+            }
+        }
+    }
+
+    /** Mở lại một ván đang chơi (thường là cờ qua thư) từ danh sách. */
+    fun openOngoing(g: OngoingGame) {
+        if (g.id == lichessGameId && ui.active) {
+            if (screen != Screen.GAME) stack.add(Screen.GAME)
+            return
+        }
+        startLichessGame(g.id, g.white, g.correspondence)
+    }
+
+    private fun startLichessGame(id: String, white: Boolean?, corr: Boolean) {
+        val client = lichessClient ?: return
+        lichessGameId = id
+        lichessCorr = corr
         gameStream?.cancel()
         gameStream = client.streamGame(
             id,
@@ -1607,10 +2107,11 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
                 val iAmWhite = colorHint
                     ?: (w?.optString("id")?.lowercase() == meLower || w?.optString("name")?.lowercase() == meLower)
                 val fen = e.optString("initialFen").let { if (it.isBlank() || it == "startpos") START_FEN else it }
+                if (e.optString("speed") == "correspondence") lichessCorr = true
                 beginGame(
                     Mode.LICHESS, iAmWhite,
                     whiteName = label(w), blackName = label(b), whiteSub = rating(w), blackSub = rating(b),
-                    startFen = fen,
+                    startFen = fen, noClock = lichessCorr,
                 )
                 e.optJSONObject("state")?.let { applyLichessState(it) }
             }
@@ -1628,11 +2129,16 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             if (!game.play(mv)) break
             changed = true
         }
-        clockMs[0] = s.optLong("wtime", clockMs[0])
-        clockMs[1] = s.optLong("btime", clockMs[1])
-        lastTick = SystemClock.elapsedRealtime()
-        publishClocks()
-        if (changed) refresh { copy(moveTick = moveTick + 1, notice = null) }
+        if (!lichessCorr) {
+            clockMs[0] = s.optLong("wtime", clockMs[0])
+            clockMs[1] = s.optLong("btime", clockMs[1])
+            lastTick = SystemClock.elapsedRealtime()
+            publishClocks()
+        }
+        if (changed) {
+            refresh { copy(moveTick = moveTick + 1, notice = null) }
+            if (ui.result == null) runPremove()
+        }
         val opp = if (myWhite == true) s.optBoolean("bdraw") else s.optBoolean("wdraw")
         ui = ui.copy(drawOffered = opp && ui.result == null)
         val status = s.optString("status")
@@ -1670,6 +2176,8 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         clockJob?.cancel()
         closeLink()
         stopLobbies()
+        lanListener?.stop()
+        pendingLan?.let { dropPendingLan(it) }
         seekCall?.cancel()
         eventStream?.cancel()
         gameStream?.cancel()
